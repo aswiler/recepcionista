@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^0.8.0",
+    "@nangohq/node": "^1.0.0",
     "@neondatabase/serverless": "^0.9.0",
     "@pinecone-database/pinecone": "^2.0.0",
     "clsx": "^2.1.0",
