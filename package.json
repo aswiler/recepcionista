@@ -1,0 +1,23 @@
+{
+  "name": "recepcionista",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "dev:all": "npm run dev --workspace=apps/web & npm run dev --workspace=apps/voice",
+    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/voice",
+    "lint": "npm run lint --workspace=apps/web",
+    "db:push": "npm run db:push --workspace=apps/web",
+    "db:studio": "npm run db:studio --workspace=apps/web"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

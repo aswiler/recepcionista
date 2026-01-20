@@ -1,0 +1,158 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { generateResponse } from '@/lib/ai/brain'
+import { db } from '@/lib/db'
+import { businesses, conversations, messages } from '@/lib/db/schema'
+import { eq, and } from 'drizzle-orm'
+
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+
+/**
+ * WhatsApp Webhook Verification (GET)
+ */
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams
+  const mode = searchParams.get('hub.mode')
+  const token = searchParams.get('hub.verify_token')
+  const challenge = searchParams.get('hub.challenge')
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('WhatsApp webhook verified')
+    return new NextResponse(challenge, { status: 200 })
+  }
+
+  return new NextResponse('Forbidden', { status: 403 })
+}
+
+/**
+ * WhatsApp Incoming Message Handler (POST)
+ * Routes messages to the correct business based on phone_number_id
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    
+    // Extract message data from Meta's webhook format
+    const entry = body.entry?.[0]
+    const changes = entry?.changes?.[0]
+    const value = changes?.value
+    const messageData = value?.messages?.[0]
+    const phoneNumberId = value?.metadata?.phone_number_id
+    
+    if (!messageData || !phoneNumberId) {
+      return NextResponse.json({ status: 'no_message' })
+    }
+    
+    const customerPhone = messageData.from
+    const text = messageData.text?.body
+    const messageId = messageData.id
+    
+    if (!text) {
+      return NextResponse.json({ status: 'no_text' })
+    }
+    
+    console.log(`[WhatsApp] From ${customerPhone} to ${phoneNumberId}: ${text}`)
+    
+    // Find business by their connected WhatsApp phone number ID
+    const business = await db.query.businesses.findFirst({
+      where: eq(businesses.whatsappPhoneNumberId, phoneNumberId)
+    })
+    
+    if (!business) {
+      console.error(`[WhatsApp] No business found for phone_number_id: ${phoneNumberId}`)
+      return NextResponse.json({ status: 'no_business' })
+    }
+    
+    // Get or create conversation
+    let conversation = await db.query.conversations.findFirst({
+      where: and(
+        eq(conversations.businessId, business.id),
+        eq(conversations.customerPhone, customerPhone)
+      )
+    })
+    
+    if (!conversation) {
+      const [newConversation] = await db.insert(conversations).values({
+        id: `conv_${Date.now()}`,
+        businessId: business.id,
+        customerPhone,
+        status: 'active',
+        lastMessageAt: new Date(),
+      }).returning()
+      conversation = newConversation
+    }
+    
+    // Store incoming message
+    await db.insert(messages).values({
+      id: `msg_${messageId}`,
+      conversationId: conversation.id,
+      externalId: messageId,
+      role: 'user',
+      content: text,
+    })
+    
+    // Generate AI response
+    const response = await generateResponse(
+      business.id,
+      business.name,
+      text,
+      'whatsapp'
+    )
+    
+    // Send response via WhatsApp
+    const sentMessageId = await sendWhatsAppMessage(phoneNumberId, customerPhone, response.text)
+    
+    // Store outgoing message
+    await db.insert(messages).values({
+      id: `msg_${sentMessageId || Date.now()}`,
+      conversationId: conversation.id,
+      externalId: sentMessageId,
+      role: 'assistant',
+      content: response.text,
+    })
+    
+    // Update conversation timestamp
+    await db.update(conversations)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(conversations.id, conversation.id))
+    
+    return NextResponse.json({ status: 'ok' })
+  } catch (error) {
+    console.error('[WhatsApp] Webhook error:', error)
+    return NextResponse.json({ status: 'error' }, { status: 500 })
+  }
+}
+
+/**
+ * Send a WhatsApp message using the business's connected number
+ */
+async function sendWhatsAppMessage(
+  phoneNumberId: string,
+  to: string,
+  text: string
+): Promise<string | null> {
+  const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body: text },
+    }),
+  })
+  
+  if (!response.ok) {
+    const error = await response.text()
+    console.error('[WhatsApp] Send error:', error)
+    return null
+  }
+  
+  const data = await response.json()
+  return data.messages?.[0]?.id || null
+}
