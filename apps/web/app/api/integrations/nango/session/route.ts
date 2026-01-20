@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSessionToken } from '@/lib/integrations/nango'
+import { createConnectSession } from '@/lib/integrations/nango'
 
 /**
  * Create a Nango session token for OAuth flow
@@ -17,12 +17,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Create session token
-    const token = await createSessionToken({
+    const result = await createConnectSession({
       endUserId: businessId, // Use businessId as end user ID
-      allowedIntegrations: [integrationId], // e.g., 'google-calendar'
+      integrationId: integrationId, // e.g., 'google-calendar'
     })
 
-    return NextResponse.json({ sessionToken: token })
+    if (!result) {
+      return NextResponse.json(
+        { error: 'Failed to create session token' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ sessionToken: result.token, url: result.url })
   } catch (error) {
     console.error('Error creating session token:', error)
     return NextResponse.json(
