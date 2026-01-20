@@ -14,6 +14,7 @@ async function getNango() {
   
   if (!Nango) {
     try {
+      // @ts-ignore - dynamic import for optional dependency
       const module = await import('@nangohq/node')
       Nango = module.Nango
     } catch {

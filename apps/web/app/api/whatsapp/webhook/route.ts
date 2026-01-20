@@ -54,9 +54,11 @@ export async function POST(request: NextRequest) {
     console.log(`[WhatsApp] From ${customerPhone} to ${phoneNumberId}: ${text}`)
     
     // Find business by their connected WhatsApp phone number ID
-    const business = await db.query.businesses.findFirst({
-      where: eq(businesses.whatsappPhoneNumberId, phoneNumberId)
-    })
+    const [business] = await db
+      .select()
+      .from(businesses)
+      .where(eq(businesses.whatsappPhoneNumberId, phoneNumberId))
+      .limit(1)
     
     if (!business) {
       console.error(`[WhatsApp] No business found for phone_number_id: ${phoneNumberId}`)
@@ -64,12 +66,18 @@ export async function POST(request: NextRequest) {
     }
     
     // Get or create conversation
-    let conversation = await db.query.conversations.findFirst({
-      where: and(
-        eq(conversations.businessId, business.id),
-        eq(conversations.customerPhone, customerPhone)
+    const [existingConversation] = await db
+      .select()
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.businessId, business.id),
+          eq(conversations.customerPhone, customerPhone)
+        )
       )
-    })
+      .limit(1)
+    
+    let conversation = existingConversation
     
     if (!conversation) {
       const [newConversation] = await db.insert(conversations).values({
