@@ -870,9 +870,9 @@ function Footer() {
           <div>
             <h4 className="font-semibold text-white mb-4">Legal</h4>
             <ul className="space-y-2">
-              <li><a href="#" className="text-slate-400 hover:text-white transition">Privacidad</a></li>
+              <li><Link href="/privacy" className="text-slate-400 hover:text-white transition">Privacidad</Link></li>
               <li><a href="#" className="text-slate-400 hover:text-white transition">Términos</a></li>
-              <li><a href="#" className="text-slate-400 hover:text-white transition">RGPD</a></li>
+              <li><Link href="/privacy" className="text-slate-400 hover:text-white transition">RGPD</Link></li>
             </ul>
           </div>
         </div>
