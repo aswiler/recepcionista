@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { businesses } from '@/lib/db/schema'
+import { businesses, users } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -22,7 +22,54 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Update business with WhatsApp connection
+    // Check if business exists
+    const [existingBusiness] = await db
+      .select()
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1)
+    
+    if (!existingBusiness) {
+      // Create demo user if needed
+      let [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, 'demo-user-1'))
+        .limit(1)
+      
+      if (!user) {
+        const [newUser] = await db.insert(users).values({
+          id: 'demo-user-1',
+          email: 'demo@recepcionista.com',
+          name: 'Demo User',
+        }).returning()
+        user = newUser
+      }
+      
+      // Create business with WhatsApp connection
+      const [newBusiness] = await db.insert(businesses).values({
+        id: businessId,
+        userId: user.id,
+        name: 'Demo Business',
+        description: 'Demo business for WhatsApp testing',
+        language: 'es',
+        timezone: 'Europe/Madrid',
+        whatsappPhoneNumberId: phoneNumberId,
+        whatsappPhoneNumber: phoneNumber || null,
+        whatsappConnectedAt: new Date(),
+      }).returning()
+      
+      return NextResponse.json({ 
+        success: true,
+        message: 'Business created and WhatsApp connected successfully',
+        business: {
+          id: newBusiness.id,
+          whatsappPhoneNumberId: newBusiness.whatsappPhoneNumberId,
+        }
+      })
+    }
+    
+    // Update existing business with WhatsApp connection
     await db.update(businesses)
       .set({
         whatsappPhoneNumberId: phoneNumberId,
@@ -39,7 +86,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[WhatsApp] Connect error:', error)
     return NextResponse.json(
-      { error: 'Failed to connect WhatsApp' },
+      { error: 'Failed to connect WhatsApp', details: String(error) },
       { status: 500 }
     )
   }
