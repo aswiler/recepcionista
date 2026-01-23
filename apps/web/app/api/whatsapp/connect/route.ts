@@ -93,6 +93,73 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * GET endpoint - Auto-connect or show status
+ * GET /api/whatsapp/connect?businessId=demo_business
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const businessId = searchParams.get('businessId') || 'demo_business'
+    const autoConnect = searchParams.get('auto') !== 'false' // Default to true
+    
+    // Check if business exists and is connected
+    const [business] = await db
+      .select()
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1)
+    
+    if (business && business.whatsappPhoneNumberId) {
+      // Already connected - show status
+      return NextResponse.json({
+        status: 'connected',
+        business: {
+          id: business.id,
+          name: business.name,
+          whatsappPhoneNumberId: business.whatsappPhoneNumberId,
+          whatsappPhoneNumber: business.whatsappPhoneNumber,
+          whatsappConnectedAt: business.whatsappConnectedAt,
+        },
+        message: 'WhatsApp is already connected!'
+      })
+    }
+    
+    // Auto-connect if enabled
+    if (autoConnect) {
+      const phoneNumberId = process.env.whatsappPhoneNumberId || '931277210074180'
+      const phoneNumber = process.env.whatsappPhoneNumber || '+34 936 09 62 40'
+      
+      // Create a POST request internally
+      const postRequest = new NextRequest(request.url, {
+        method: 'POST',
+        body: JSON.stringify({
+          businessId,
+          phoneNumberId,
+          phoneNumber,
+        }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      return POST(postRequest)
+    }
+    
+    // Not connected and auto-connect disabled
+    return NextResponse.json({
+      status: 'not_connected',
+      businessId,
+      message: 'WhatsApp not connected. Add ?auto=true to auto-connect, or use POST method.',
+      instructions: 'Visit this URL with ?auto=true or use POST /api/whatsapp/connect'
+    })
+  } catch (error) {
+    console.error('[WhatsApp] GET error:', error)
+    return NextResponse.json(
+      { error: 'Failed to check WhatsApp connection', details: String(error) },
+      { status: 500 }
+    )
+  }
+}
+
+/**
  * Disconnect WhatsApp from a business
  * DELETE /api/whatsapp/connect
  */
