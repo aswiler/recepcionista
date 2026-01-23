@@ -90,14 +90,23 @@ export async function POST(request: NextRequest) {
       conversation = newConversation
     }
     
-    // Store incoming message
-    await db.insert(messages).values({
-      id: `msg_${messageId}`,
-      conversationId: conversation.id,
-      externalId: messageId,
-      role: 'user',
-      content: text,
-    })
+    // Store incoming message (ignore if already exists - Meta retries webhooks)
+    try {
+      await db.insert(messages).values({
+        id: `msg_${messageId}`,
+        conversationId: conversation.id,
+        externalId: messageId,
+        role: 'user',
+        content: text,
+      })
+    } catch (insertError: any) {
+      // If duplicate key error, message was already processed - skip
+      if (insertError?.message?.includes('duplicate key')) {
+        console.log(`[WhatsApp] Message ${messageId} already processed, skipping`)
+        return NextResponse.json({ status: 'already_processed' })
+      }
+      throw insertError
+    }
     
     // Generate AI response
     const response = await generateResponse(
@@ -139,7 +148,7 @@ async function sendWhatsAppMessage(
   to: string,
   text: string
 ): Promise<string | null> {
-  const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`
+  const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`
   
   const response = await fetch(url, {
     method: 'POST',
