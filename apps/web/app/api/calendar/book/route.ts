@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { bookAppointment } from '@/lib/integrations/calendar'
+import { getCalendarIntegration } from '@/lib/db/queries'
 
 /**
  * Book an appointment on the calendar
  * POST /api/calendar/book
+ * 
+ * Body: { businessId, date, time, customerName, customerPhone?, serviceType?, notes? }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -14,16 +17,30 @@ export async function POST(request: NextRequest) {
       time, 
       customerName, 
       customerPhone,
+      customerEmail,
       serviceType,
-      notes 
+      notes,
+      duration = 60 // Default 60 minutes
     } = await request.json()
     
-    if (!businessId || !connectionId || !date || !time || !customerName) {
+    if (!businessId || !date || !time || !customerName) {
       return NextResponse.json(
         { success: false, message: 'Faltan datos obligatorios para la reserva' },
         { status: 400 }
       )
     }
+    
+    // Get calendar integration from database
+    const integration = await getCalendarIntegration(businessId)
+    if (!integration) {
+      return NextResponse.json(
+        { success: false, message: 'No hay calendario conectado. Por favor, conecta tu calendario primero.' },
+        { status: 404 }
+      )
+    }
+    
+    const integrationId = integration.integrationId
+    const connId = connectionId || integration.connectionId
     
     // Parse date and time
     const [hours, minutes] = time.split(':').map(Number)
@@ -31,7 +48,7 @@ export async function POST(request: NextRequest) {
     startDate.setHours(hours, minutes, 0, 0)
     
     const endDate = new Date(startDate)
-    endDate.setHours(hours + 1) // Default 1 hour appointment
+    endDate.setMinutes(startDate.getMinutes() + duration)
     
     // Build appointment title and description
     const title = serviceType 
@@ -40,17 +57,22 @@ export async function POST(request: NextRequest) {
     
     let description = `Cliente: ${customerName}`
     if (customerPhone) description += `\nTeléfono: ${customerPhone}`
+    if (customerEmail) description += `\nEmail: ${customerEmail}`
     if (serviceType) description += `\nServicio: ${serviceType}`
     if (notes) description += `\nNotas: ${notes}`
     description += `\n\nReservado por: Recepcionista AI`
     
+    // Prepare attendees (email addresses only)
+    const attendees: string[] = []
+    if (customerEmail) attendees.push(customerEmail)
+    
     // Book the appointment
-    const appointment = await bookAppointment(connectionId, {
+    const appointment = await bookAppointment(integrationId, connId, {
       title,
       description,
       start: startDate.toISOString(),
       end: endDate.toISOString(),
-      attendees: customerPhone ? [customerPhone] : undefined,
+      attendees: attendees.length > 0 ? attendees : undefined,
     })
     
     // Format confirmation message
@@ -70,6 +92,8 @@ export async function POST(request: NextRequest) {
         date,
         time,
         customerName,
+        customerEmail,
+        customerPhone,
         service: serviceType,
       }
     })

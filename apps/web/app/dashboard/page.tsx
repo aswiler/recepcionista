@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 import { 
   Phone, 
   PhoneIncoming,
@@ -17,85 +18,68 @@ import {
   Play,
   MessageSquare,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Loader2
 } from 'lucide-react'
+import { useDashboardStats, useCalls, useBusinessData, type Call } from '@/lib/hooks/use-dashboard-data'
 
-// Mock data - in production, fetch from API
-const stats = {
-  totalCalls: 127,
-  callsChange: 12,
-  appointmentsBooked: 34,
-  appointmentsChange: 8,
-  avgCallDuration: '2:34',
-  durationChange: -15,
-  missedCalls: 3,
-  missedChange: -2,
+// Loading skeleton component
+function StatCardSkeleton() {
+  return (
+    <div className="p-6 rounded-2xl bg-white/5 border border-white/10 animate-pulse">
+      <div className="flex items-center justify-between mb-4">
+        <div className="w-10 h-10 rounded-xl bg-white/10" />
+        <div className="w-12 h-4 bg-white/10 rounded" />
+      </div>
+      <div className="w-16 h-8 bg-white/10 rounded mb-2" />
+      <div className="w-24 h-4 bg-white/10 rounded" />
+    </div>
+  )
 }
 
-const recentCalls = [
-  {
-    id: '1',
-    caller: '+34 612 345 678',
-    callerName: 'Ana Martínez',
-    time: 'Hace 5 min',
-    duration: '3:24',
-    status: 'completed',
-    outcome: 'appointment',
-    summary: 'Reservó cita para limpieza dental el martes a las 10:00',
-  },
-  {
-    id: '2',
-    caller: '+34 623 456 789',
-    callerName: null,
-    time: 'Hace 23 min',
-    duration: '1:45',
-    status: 'completed',
-    outcome: 'info',
-    summary: 'Preguntó por horarios y precios de blanqueamiento',
-  },
-  {
-    id: '3',
-    caller: '+34 634 567 890',
-    callerName: 'Carlos López',
-    time: 'Hace 1 hora',
-    duration: '0:45',
-    status: 'transferred',
-    outcome: 'transfer',
-    summary: 'Solicitó hablar con el doctor sobre urgencia',
-  },
-  {
-    id: '4',
-    caller: '+34 645 678 901',
-    callerName: null,
-    time: 'Hace 2 horas',
-    duration: '2:12',
-    status: 'completed',
-    outcome: 'appointment',
-    summary: 'Reservó revisión para su hijo el viernes',
-  },
-]
-
-const upcomingAppointments = [
-  { time: '10:00', name: 'Ana Martínez', service: 'Limpieza dental', date: 'Mañana' },
-  { time: '11:30', name: 'Pedro Sánchez', service: 'Revisión', date: 'Mañana' },
-  { time: '16:00', name: 'Laura Fernández', service: 'Blanqueamiento', date: 'Miércoles' },
-]
-
-const insights = [
-  { text: 'El 40% de las llamadas preguntan por blanqueamiento', type: 'trending' },
-  { text: '3 clientes mencionaron problemas de parking', type: 'attention' },
-  { text: 'Horario más popular: 10:00-12:00', type: 'info' },
-]
+function CallSkeleton() {
+  return (
+    <div className="flex items-start gap-4 p-5 animate-pulse">
+      <div className="w-12 h-12 rounded-xl bg-white/10" />
+      <div className="flex-1">
+        <div className="w-32 h-5 bg-white/10 rounded mb-2" />
+        <div className="w-48 h-4 bg-white/10 rounded" />
+      </div>
+      <div className="w-16 h-4 bg-white/10 rounded" />
+    </div>
+  )
+}
 
 export default function DashboardPage() {
+  const { data: session } = useSession()
   const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month'>('week')
+  
+  const { stats, loading: statsLoading } = useDashboardStats(timeRange)
+  const { calls: recentCalls, loading: callsLoading } = useCalls({ recent: true, limit: 4 })
+  const { data: businessData, loading: businessLoading } = useBusinessData()
+
+  const userName = session?.user?.name?.split(' ')[0] || 'Usuario'
+  const businessName = businessData?.business?.name || 'Tu negocio'
+  const businessPhone = businessData?.business?.whatsappPhoneNumber || businessData?.business?.phone
+
+  // AI Insights - these could come from a separate API in the future
+  const insights = [
+    { text: 'Tu AI ha atendido todas las llamadas de la semana', type: 'trending' },
+    { text: 'Considera añadir más horarios de atención', type: 'info' },
+    { text: 'El tiempo de respuesta es óptimo', type: 'info' },
+  ]
+
+  // Mock upcoming appointments - would come from calendar integration
+  const upcomingAppointments = [
+    { time: '10:00', name: 'Próxima cita', service: 'Ver calendario', date: 'Configurar' },
+  ]
 
   return (
     <div className="space-y-8">
       {/* Welcome & Time Range */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">¡Buenos días, María! 👋</h1>
+          <h1 className="text-2xl font-bold text-white">¡Hola, {userName}! 👋</h1>
           <p className="text-slate-400 mt-1">Tu recepcionista AI está activa y atendiendo llamadas</p>
         </div>
         
@@ -119,65 +103,84 @@ export default function DashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Calls */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2.5 rounded-xl bg-blue-500/20">
-              <Phone className="w-5 h-5 text-blue-400" />
+        {statsLoading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            {/* Total Calls */}
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2.5 rounded-xl bg-blue-500/20">
+                  <Phone className="w-5 h-5 text-blue-400" />
+                </div>
+                {stats && stats.callsChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm font-medium ${stats.callsChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {stats.callsChange >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                    {Math.abs(stats.callsChange)}%
+                  </div>
+                )}
+              </div>
+              <p className="text-3xl font-bold text-white">{stats?.totalCalls ?? 0}</p>
+              <p className="text-sm text-slate-400 mt-1">Llamadas atendidas</p>
             </div>
-            <div className={`flex items-center gap-1 text-sm font-medium ${stats.callsChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {stats.callsChange >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              {Math.abs(stats.callsChange)}%
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-white">{stats.totalCalls}</p>
-          <p className="text-sm text-slate-400 mt-1">Llamadas atendidas</p>
-        </div>
 
-        {/* Appointments Booked */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border border-emerald-500/20">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2.5 rounded-xl bg-emerald-500/20">
-              <Calendar className="w-5 h-5 text-emerald-400" />
+            {/* Appointments Booked */}
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border border-emerald-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2.5 rounded-xl bg-emerald-500/20">
+                  <Calendar className="w-5 h-5 text-emerald-400" />
+                </div>
+                {stats && stats.appointmentsChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm font-medium ${stats.appointmentsChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {stats.appointmentsChange >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                    {Math.abs(stats.appointmentsChange)}%
+                  </div>
+                )}
+              </div>
+              <p className="text-3xl font-bold text-white">{stats?.appointmentsBooked ?? 0}</p>
+              <p className="text-sm text-slate-400 mt-1">Citas reservadas</p>
             </div>
-            <div className={`flex items-center gap-1 text-sm font-medium ${stats.appointmentsChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {stats.appointmentsChange >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              {Math.abs(stats.appointmentsChange)}%
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-white">{stats.appointmentsBooked}</p>
-          <p className="text-sm text-slate-400 mt-1">Citas reservadas</p>
-        </div>
 
-        {/* Avg Duration */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2.5 rounded-xl bg-purple-500/20">
-              <Clock className="w-5 h-5 text-purple-400" />
+            {/* Avg Duration */}
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2.5 rounded-xl bg-purple-500/20">
+                  <Clock className="w-5 h-5 text-purple-400" />
+                </div>
+                {stats && stats.durationChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm font-medium ${stats.durationChange <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {stats.durationChange <= 0 ? <TrendingDown className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
+                    {Math.abs(stats.durationChange)}%
+                  </div>
+                )}
+              </div>
+              <p className="text-3xl font-bold text-white">{stats?.avgCallDuration ?? '0:00'}</p>
+              <p className="text-sm text-slate-400 mt-1">Duración media</p>
             </div>
-            <div className={`flex items-center gap-1 text-sm font-medium ${stats.durationChange <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {stats.durationChange <= 0 ? <TrendingDown className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
-              {Math.abs(stats.durationChange)}%
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-white">{stats.avgCallDuration}</p>
-          <p className="text-sm text-slate-400 mt-1">Duración media</p>
-        </div>
 
-        {/* Missed Calls */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 to-amber-600/5 border border-amber-500/20">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2.5 rounded-xl bg-amber-500/20">
-              <PhoneMissed className="w-5 h-5 text-amber-400" />
+            {/* Missed Calls */}
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 to-amber-600/5 border border-amber-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2.5 rounded-xl bg-amber-500/20">
+                  <PhoneMissed className="w-5 h-5 text-amber-400" />
+                </div>
+                {stats && stats.missedChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm font-medium ${stats.missedChange <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {stats.missedChange <= 0 ? <TrendingDown className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
+                    {Math.abs(stats.missedChange)}
+                  </div>
+                )}
+              </div>
+              <p className="text-3xl font-bold text-white">{stats?.missedCalls ?? 0}</p>
+              <p className="text-sm text-slate-400 mt-1">Llamadas transferidas</p>
             </div>
-            <div className={`flex items-center gap-1 text-sm font-medium ${stats.missedChange <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {stats.missedChange <= 0 ? <TrendingDown className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
-              {Math.abs(stats.missedChange)}
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-white">{stats.missedCalls}</p>
-          <p className="text-sm text-slate-400 mt-1">Llamadas perdidas</p>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Main Content Grid */}
@@ -201,58 +204,75 @@ export default function DashboardPage() {
           </div>
           
           <div className="divide-y divide-white/5">
-            {recentCalls.map((call) => (
-              <Link
-                key={call.id}
-                href={`/dashboard/calls/${call.id}`}
-                className="flex items-start gap-4 p-5 hover:bg-white/5 transition-colors"
-              >
-                {/* Status indicator */}
-                <div className={`p-2.5 rounded-xl ${
-                  call.outcome === 'appointment' 
-                    ? 'bg-emerald-500/20' 
-                    : call.outcome === 'transfer'
-                    ? 'bg-amber-500/20'
-                    : 'bg-blue-500/20'
-                }`}>
-                  {call.outcome === 'appointment' ? (
-                    <Calendar className={`w-5 h-5 ${call.outcome === 'appointment' ? 'text-emerald-400' : 'text-blue-400'}`} />
-                  ) : call.outcome === 'transfer' ? (
-                    <PhoneOutgoing className="w-5 h-5 text-amber-400" />
-                  ) : (
-                    <MessageSquare className="w-5 h-5 text-blue-400" />
-                  )}
+            {callsLoading ? (
+              <>
+                <CallSkeleton />
+                <CallSkeleton />
+                <CallSkeleton />
+                <CallSkeleton />
+              </>
+            ) : recentCalls.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
+                  <Phone className="w-8 h-8 text-slate-500" />
                 </div>
-                
-                {/* Call info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium text-white">
-                      {call.callerName || call.caller}
-                    </p>
-                    {call.outcome === 'appointment' && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full">
-                        Cita reservada
-                      </span>
-                    )}
-                    {call.outcome === 'transfer' && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 rounded-full">
-                        Transferida
-                      </span>
+                <p className="text-lg font-medium text-white mb-2">Sin llamadas aún</p>
+                <p className="text-slate-400">Las llamadas atendidas por tu AI aparecerán aquí</p>
+              </div>
+            ) : (
+              recentCalls.map((call) => (
+                <Link
+                  key={call.id}
+                  href={`/dashboard/calls/${call.id}`}
+                  className="flex items-start gap-4 p-5 hover:bg-white/5 transition-colors"
+                >
+                  {/* Status indicator */}
+                  <div className={`p-2.5 rounded-xl ${
+                    call.outcome === 'appointment' 
+                      ? 'bg-emerald-500/20' 
+                      : call.outcome === 'transfer'
+                      ? 'bg-amber-500/20'
+                      : 'bg-blue-500/20'
+                  }`}>
+                    {call.outcome === 'appointment' ? (
+                      <Calendar className="w-5 h-5 text-emerald-400" />
+                    ) : call.outcome === 'transfer' ? (
+                      <PhoneOutgoing className="w-5 h-5 text-amber-400" />
+                    ) : (
+                      <MessageSquare className="w-5 h-5 text-blue-400" />
                     )}
                   </div>
-                  <p className="text-sm text-slate-400 truncate">{call.summary}</p>
-                </div>
-                
-                {/* Time & Duration */}
-                <div className="text-right shrink-0">
-                  <p className="text-sm text-slate-400">{call.time}</p>
-                  <p className="text-xs text-slate-500 mt-1">{call.duration}</p>
-                </div>
-                
-                <ChevronRight className="w-5 h-5 text-slate-600 shrink-0" />
-              </Link>
-            ))}
+                  
+                  {/* Call info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-medium text-white">
+                        {call.callerName || call.caller}
+                      </p>
+                      {call.outcome === 'appointment' && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full">
+                          Cita reservada
+                        </span>
+                      )}
+                      {call.outcome === 'transfer' && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 rounded-full">
+                          Transferida
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-400 truncate">{call.summary}</p>
+                  </div>
+                  
+                  {/* Time & Duration */}
+                  <div className="text-right shrink-0">
+                    <p className="text-sm text-slate-400">{call.time}</p>
+                    <p className="text-xs text-slate-500 mt-1">{call.duration}</p>
+                  </div>
+                  
+                  <ChevronRight className="w-5 h-5 text-slate-600 shrink-0" />
+                </Link>
+              ))
+            )}
           </div>
         </div>
 
@@ -288,6 +308,15 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))}
+              <div className="p-4">
+                <Link 
+                  href="/dashboard/settings"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 text-sm font-medium text-blue-400 bg-blue-500/10 rounded-xl hover:bg-blue-500/20 transition-colors"
+                >
+                  Configurar calendario
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
             </div>
           </div>
 
@@ -350,7 +379,9 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="font-medium text-white">Tu recepcionista está activa</p>
-            <p className="text-sm text-slate-400">Atendiendo llamadas al +34 910 123 456</p>
+            <p className="text-sm text-slate-400">
+              {businessPhone ? `Atendiendo llamadas al ${businessPhone}` : 'Configura tu número de teléfono'}
+            </p>
           </div>
         </div>
         <Link

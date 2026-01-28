@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateResponse } from '@/lib/ai/brain'
 import { db } from '@/lib/db'
-import { businesses, conversations, messages } from '@/lib/db/schema'
-import { eq, and } from 'drizzle-orm'
+import { businesses, conversations, messages, calendarIntegrations } from '@/lib/db/schema'
+import { eq, and, desc } from 'drizzle-orm'
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
@@ -108,12 +108,43 @@ export async function POST(request: NextRequest) {
       throw insertError
     }
     
-    // Generate AI response
+    // Check if business has a calendar integration
+    const [calendarIntegration] = await db
+      .select()
+      .from(calendarIntegrations)
+      .where(
+        and(
+          eq(calendarIntegrations.businessId, business.id),
+          eq(calendarIntegrations.isActive, true)
+        )
+      )
+      .limit(1)
+    
+    const hasCalendar = !!calendarIntegration
+    console.log(`[WhatsApp] Calendar enabled: ${hasCalendar}`)
+    
+    // Get recent conversation history for context
+    const recentMessages = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversation.id))
+      .orderBy(desc(messages.createdAt))
+      .limit(10)
+    
+    const conversationHistory = recentMessages
+      .reverse()
+      .map(m => ({ role: m.role, content: m.content }))
+    
+    // Generate AI response with calendar tools if available
     const response = await generateResponse(
       business.id,
       business.name,
       text,
-      'whatsapp'
+      'whatsapp',
+      {
+        enableCalendar: hasCalendar,
+        conversationHistory,
+      }
     )
     
     // Send response via WhatsApp

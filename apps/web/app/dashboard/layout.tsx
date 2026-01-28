@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
@@ -15,7 +15,8 @@ import {
   Bell,
   ChevronDown,
   LogOut,
-  Building2
+  Building2,
+  Loader2
 } from 'lucide-react'
 
 const navigation = [
@@ -26,6 +27,22 @@ const navigation = [
   { name: 'Ajustes', href: '/dashboard/settings', icon: Settings },
 ]
 
+interface BusinessData {
+  business: {
+    id: string
+    name: string
+    website: string | null
+    phone: string | null
+    timezone: string | null
+    whatsappConnected: boolean
+    whatsappPhoneNumber: string | null
+  } | null
+  subscription: {
+    plan: string
+    status: string
+  } | null
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -35,15 +52,39 @@ export default function DashboardLayout({
   const { data: session } = useSession()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [businessData, setBusinessData] = useState<BusinessData | null>(null)
+  const [loadingBusiness, setLoadingBusiness] = useState(true)
+
+  // Fetch business data
+  useEffect(() => {
+    async function fetchBusiness() {
+      try {
+        const res = await fetch('/api/dashboard/business')
+        if (res.ok) {
+          const data = await res.json()
+          setBusinessData(data)
+        }
+      } catch (error) {
+        console.error('Error fetching business:', error)
+      } finally {
+        setLoadingBusiness(false)
+      }
+    }
+
+    if (session?.user) {
+      fetchBusiness()
+    } else {
+      setLoadingBusiness(false)
+    }
+  }, [session?.user])
 
   // Get user data from session
   const user = session?.user
   
-  // Mock business data - in production, fetch from database based on user
-  const business = {
-    name: 'Clínica Dental García',
-    plan: 'Pro',
-  }
+  // Get business info
+  const businessName = businessData?.business?.name || 'Mi Negocio'
+  const plan = businessData?.subscription?.plan || 'starter'
+  const planLabel = plan === 'pro' ? 'Pro' : plan === 'enterprise' ? 'Enterprise' : 'Starter'
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -79,9 +120,18 @@ export default function DashboardLayout({
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center">
               <Building2 className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium text-white truncate">{business.name}</p>
-              <p className="text-xs text-slate-400">Plan {business.plan}</p>
+            <div className="flex-1 text-left min-w-0">
+              {loadingBusiness ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+                  <span className="text-sm text-slate-400">Cargando...</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-white truncate">{businessName}</p>
+                  <p className="text-xs text-slate-400">Plan {planLabel}</p>
+                </>
+              )}
             </div>
             <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors" />
           </button>

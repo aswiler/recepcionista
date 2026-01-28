@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, use } from 'react'
 import Link from 'next/link'
 import { 
   ArrowLeft,
@@ -18,54 +18,112 @@ import {
   PhoneOutgoing,
   Copy,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Loader2,
+  AlertCircle
 } from 'lucide-react'
 
-// Mock call data
-const callData = {
-  id: '1',
-  caller: '+34 612 345 678',
-  callerName: 'Ana Martínez',
-  time: '14:32',
-  date: 'Hoy, 15 de Enero 2024',
-  duration: '3:24',
-  status: 'completed',
-  outcome: 'appointment',
-  sentiment: 'positive',
-  sentimentScore: 0.85,
-  summary: 'La cliente llamó para reservar una cita de limpieza dental. Preguntó por disponibilidad el martes y se le ofreció hueco a las 10:00. Confirmó que tiene seguro Sanitas y se le informó que está cubierto. Reserva confirmada.',
+interface CallData {
+  id: string
+  caller: string
+  callerName: string | null
+  time: string
+  date: string
+  duration: string
+  status: string
+  outcome: string
+  sentiment: string
+  sentimentScore: number
+  summary: string
+  transcript: Array<{ speaker: string; text: string }>
+  tags: string[]
   appointmentDetails: {
-    date: 'Martes, 17 de Enero',
-    time: '10:00',
-    service: 'Limpieza dental',
-    notes: 'Cliente con seguro Sanitas'
-  },
-  tags: ['cita reservada', 'seguro sanitas', 'limpieza'],
-  transcript: [
-    { speaker: 'ai', text: '¡Hola! Gracias por llamar a Clínica Dental García. ¿En qué puedo ayudarte?' },
-    { speaker: 'customer', text: 'Hola, quería pedir cita para una limpieza.' },
-    { speaker: 'ai', text: '¡Por supuesto! Estaré encantada de ayudarte. ¿Tienes algún día de preferencia?' },
-    { speaker: 'customer', text: 'Pues si puede ser el martes me vendría bien, por la mañana.' },
-    { speaker: 'ai', text: 'Perfecto, déjame comprobar la disponibilidad para el martes por la mañana...' },
-    { speaker: 'ai', text: 'Tenemos hueco a las 10:00 o a las 11:30. ¿Cuál te viene mejor?' },
-    { speaker: 'customer', text: 'A las 10 me viene genial.' },
-    { speaker: 'ai', text: 'Estupendo. ¿Me puedes confirmar tu nombre completo?' },
-    { speaker: 'customer', text: 'Ana Martínez.' },
-    { speaker: 'ai', text: '¿Y tienes algún seguro dental, Ana?' },
-    { speaker: 'customer', text: 'Sí, tengo Sanitas.' },
-    { speaker: 'ai', text: '¡Perfecto! La limpieza está cubierta con Sanitas, así que no tendrás que pagar nada. Te confirmo la cita para el martes 17 de enero a las 10:00. ¿Necesitas algo más?' },
-    { speaker: 'customer', text: 'No, eso es todo. Muchas gracias.' },
-    { speaker: 'ai', text: '¡A ti! Te enviaremos un recordatorio por WhatsApp el día antes. ¡Hasta el martes!' },
-    { speaker: 'customer', text: 'Vale, adiós.' },
-  ]
+    date: string
+    time: string
+    service: string
+    notes?: string
+  } | null
 }
 
-export default function CallDetailPage({ params }: { params: { id: string } }) {
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="w-32 h-5 bg-white/10 rounded animate-pulse" />
+      
+      <div className="rounded-2xl bg-white/5 border border-white/10 p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-white/10 animate-pulse" />
+          <div className="flex-1">
+            <div className="w-48 h-7 bg-white/10 rounded mb-2 animate-pulse" />
+            <div className="w-32 h-5 bg-white/10 rounded mb-3 animate-pulse" />
+            <div className="w-64 h-4 bg-white/10 rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 rounded-2xl bg-white/5 border border-white/10 p-6">
+          <div className="space-y-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-white/10 animate-pulse" />
+                <div className="flex-1">
+                  <div className="w-24 h-3 bg-white/10 rounded mb-2 animate-pulse" />
+                  <div className="w-full h-16 bg-white/10 rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-6">
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-6">
+            <div className="w-full h-32 bg-white/10 rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function CallDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params)
+  const [callData, setCallData] = useState<CallData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [copied, setCopied] = useState(false)
 
-  const totalSeconds = 204 // 3:24
+  useEffect(() => {
+    async function fetchCall() {
+      try {
+        setLoading(true)
+        const res = await fetch(`/api/dashboard/calls/${resolvedParams.id}`)
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('Llamada no encontrada')
+          }
+          throw new Error('Error al cargar la llamada')
+        }
+        const data = await res.json()
+        setCallData(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error desconocido')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchCall()
+  }, [resolvedParams.id])
+
+  // Parse duration to seconds
+  const parseDuration = (duration: string) => {
+    const parts = duration.split(':')
+    return parseInt(parts[0]) * 60 + parseInt(parts[1] || '0')
+  }
+
+  const totalSeconds = callData ? parseDuration(callData.duration) : 0
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -74,6 +132,7 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
   }
 
   const copyTranscript = () => {
+    if (!callData) return
     const text = callData.transcript.map(t => 
       `${t.speaker === 'ai' ? 'AI' : 'Cliente'}: ${t.text}`
     ).join('\n\n')
@@ -81,6 +140,66 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
+  if (loading) {
+    return <LoadingSkeleton />
+  }
+
+  if (error || !callData) {
+    return (
+      <div className="space-y-6">
+        <Link 
+          href="/dashboard/calls"
+          className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Volver a llamadas
+        </Link>
+
+        <div className="rounded-2xl bg-white/5 border border-white/10 p-12 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-red-400" />
+          </div>
+          <p className="text-lg font-medium text-white mb-2">
+            {error || 'Llamada no encontrada'}
+          </p>
+          <p className="text-slate-400">
+            La llamada que buscas no existe o no tienes acceso a ella.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const getSentimentColor = () => {
+    switch (callData.sentiment) {
+      case 'positive': return 'bg-emerald-400'
+      case 'negative': return 'bg-red-400'
+      default: return 'bg-amber-400'
+    }
+  }
+
+  const getSentimentLabel = () => {
+    switch (callData.sentiment) {
+      case 'positive': return 'Positivo'
+      case 'negative': return 'Negativo'
+      default: return 'Neutral'
+    }
+  }
+
+  const getOutcomeInfo = () => {
+    switch (callData.outcome) {
+      case 'appointment':
+        return { icon: CheckCircle2, label: 'Cita reservada', color: 'emerald' }
+      case 'transfer':
+        return { icon: PhoneOutgoing, label: 'Transferida', color: 'amber' }
+      default:
+        return { icon: MessageSquare, label: 'Consulta atendida', color: 'blue' }
+    }
+  }
+
+  const outcomeInfo = getOutcomeInfo()
+  const OutcomeIcon = outcomeInfo.icon
 
   return (
     <div className="space-y-6">
@@ -125,16 +244,16 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
             {/* Right: Status & actions */}
             <div className="flex flex-wrap items-center gap-3">
               {/* Outcome badge */}
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                <span className="font-medium text-emerald-400">Cita reservada</span>
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-${outcomeInfo.color}-500/20 border border-${outcomeInfo.color}-500/30`}>
+                <OutcomeIcon className={`w-5 h-5 text-${outcomeInfo.color}-400`} />
+                <span className={`font-medium text-${outcomeInfo.color}-400`}>{outcomeInfo.label}</span>
               </div>
               
               {/* Sentiment */}
               <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <span className="text-sm text-slate-300">Positivo</span>
+                  <div className={`w-2 h-2 rounded-full ${getSentimentColor()}`} />
+                  <span className="text-sm text-slate-300">{getSentimentLabel()}</span>
                   <span className="text-xs text-slate-500">{Math.round(callData.sentimentScore * 100)}%</span>
                 </div>
               </div>
@@ -151,41 +270,43 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
         </div>
 
         {/* Audio Player */}
-        <div className="px-6 py-4 bg-white/5 border-t border-white/10">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsPlaying(!isPlaying)}
-              className="w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-400 transition-colors flex items-center justify-center shrink-0"
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 text-white" />
-              ) : (
-                <Play className="w-5 h-5 text-white ml-0.5" />
-              )}
-            </button>
-            
-            <div className="flex-1">
-              <div className="relative h-2 bg-white/10 rounded-full overflow-hidden">
-                <div 
-                  className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all"
-                  style={{ width: `${(currentTime / totalSeconds) * 100}%` }}
-                />
-                <input
-                  type="range"
-                  min="0"
-                  max={totalSeconds}
-                  value={currentTime}
-                  onChange={(e) => setCurrentTime(parseInt(e.target.value))}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
+        {totalSeconds > 0 && (
+          <div className="px-6 py-4 bg-white/5 border-t border-white/10">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-400 transition-colors flex items-center justify-center shrink-0"
+              >
+                {isPlaying ? (
+                  <Pause className="w-5 h-5 text-white" />
+                ) : (
+                  <Play className="w-5 h-5 text-white ml-0.5" />
+                )}
+              </button>
+              
+              <div className="flex-1">
+                <div className="relative h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div 
+                    className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all"
+                    style={{ width: `${(currentTime / totalSeconds) * 100}%` }}
+                  />
+                  <input
+                    type="range"
+                    min="0"
+                    max={totalSeconds}
+                    value={currentTime}
+                    onChange={(e) => setCurrentTime(parseInt(e.target.value))}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </div>
+              </div>
+              
+              <div className="text-sm text-slate-400 shrink-0 w-20 text-right">
+                {formatTime(currentTime)} / {formatTime(totalSeconds)}
               </div>
             </div>
-            
-            <div className="text-sm text-slate-400 shrink-0 w-20 text-right">
-              {formatTime(currentTime)} / {formatTime(totalSeconds)}
-            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Content Grid */}
@@ -199,46 +320,54 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
               </div>
               <h3 className="font-semibold text-white">Transcripción</h3>
             </div>
-            <button 
-              onClick={copyTranscript}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-400 hover:text-white bg-white/5 rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <Copy className="w-4 h-4" />
-              {copied ? 'Copiado!' : 'Copiar'}
-            </button>
+            {callData.transcript.length > 0 && (
+              <button 
+                onClick={copyTranscript}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-400 hover:text-white bg-white/5 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                {copied ? 'Copiado!' : 'Copiar'}
+              </button>
+            )}
           </div>
           
           <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto">
-            {callData.transcript.map((message, index) => (
-              <div 
-                key={index}
-                className={`flex gap-3 ${message.speaker === 'ai' ? '' : 'flex-row-reverse'}`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                  message.speaker === 'ai' 
-                    ? 'bg-blue-500/20' 
-                    : 'bg-purple-500/20'
-                }`}>
-                  {message.speaker === 'ai' ? (
-                    <Bot className="w-4 h-4 text-blue-400" />
-                  ) : (
-                    <User className="w-4 h-4 text-purple-400" />
-                  )}
-                </div>
-                <div className={`flex-1 max-w-[85%] ${message.speaker === 'ai' ? '' : 'text-right'}`}>
-                  <p className="text-xs text-slate-500 mb-1">
-                    {message.speaker === 'ai' ? 'AI Recepcionista' : callData.callerName || 'Cliente'}
-                  </p>
-                  <p className={`inline-block px-4 py-2.5 rounded-2xl text-sm ${
-                    message.speaker === 'ai'
-                      ? 'bg-white/5 text-slate-200 rounded-tl-none'
-                      : 'bg-blue-500/20 text-blue-100 rounded-tr-none'
-                  }`}>
-                    {message.text}
-                  </p>
-                </div>
+            {callData.transcript.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400">Transcripción no disponible</p>
               </div>
-            ))}
+            ) : (
+              callData.transcript.map((message, index) => (
+                <div 
+                  key={index}
+                  className={`flex gap-3 ${message.speaker === 'ai' ? '' : 'flex-row-reverse'}`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    message.speaker === 'ai' 
+                      ? 'bg-blue-500/20' 
+                      : 'bg-purple-500/20'
+                  }`}>
+                    {message.speaker === 'ai' ? (
+                      <Bot className="w-4 h-4 text-blue-400" />
+                    ) : (
+                      <User className="w-4 h-4 text-purple-400" />
+                    )}
+                  </div>
+                  <div className={`flex-1 max-w-[85%] ${message.speaker === 'ai' ? '' : 'text-right'}`}>
+                    <p className="text-xs text-slate-500 mb-1">
+                      {message.speaker === 'ai' ? 'AI Recepcionista' : callData.callerName || 'Cliente'}
+                    </p>
+                    <p className={`inline-block px-4 py-2.5 rounded-2xl text-sm ${
+                      message.speaker === 'ai'
+                        ? 'bg-white/5 text-slate-200 rounded-tl-none'
+                        : 'bg-blue-500/20 text-blue-100 rounded-tr-none'
+                    }`}>
+                      {message.text}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -294,32 +423,42 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
           )}
 
           {/* Tags */}
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-            <p className="text-sm font-medium text-white mb-3">Etiquetas</p>
-            <div className="flex flex-wrap gap-2">
-              {callData.tags.map((tag, i) => (
-                <span 
-                  key={i}
-                  className="px-3 py-1.5 text-sm bg-white/5 text-slate-300 rounded-lg border border-white/10"
-                >
-                  {tag}
-                </span>
-              ))}
+          {callData.tags.length > 0 && (
+            <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
+              <p className="text-sm font-medium text-white mb-3">Etiquetas</p>
+              <div className="flex flex-wrap gap-2">
+                {callData.tags.map((tag, i) => (
+                  <span 
+                    key={i}
+                    className="px-3 py-1.5 text-sm bg-white/5 text-slate-300 rounded-lg border border-white/10"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Quick Actions */}
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
             <p className="text-sm font-medium text-white mb-3">Acciones rápidas</p>
             <div className="space-y-2">
-              <button className="w-full flex items-center gap-3 p-3 text-left text-sm text-slate-300 hover:text-white bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+              <a 
+                href={`tel:${callData.caller}`}
+                className="w-full flex items-center gap-3 p-3 text-left text-sm text-slate-300 hover:text-white bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
+              >
                 <Phone className="w-4 h-4" />
                 Llamar al cliente
-              </button>
-              <button className="w-full flex items-center gap-3 p-3 text-left text-sm text-slate-300 hover:text-white bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+              </a>
+              <a 
+                href={`https://wa.me/${callData.caller.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-3 p-3 text-left text-sm text-slate-300 hover:text-white bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
+              >
                 <MessageSquare className="w-4 h-4" />
                 Enviar WhatsApp
-              </button>
+              </a>
             </div>
           </div>
         </div>

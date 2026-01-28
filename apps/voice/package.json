@@ -1,24 +1,33 @@
 {
-  "name": "voice",
-  "version": "0.1.0",
+  "name": "@recepcionista/voice",
+  "version": "2.0.0",
   "private": true,
+  "description": "Premium voice AI service with calendar integration",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node",
-    "start": "bun dist/index.js"
+    "build": "bun build src/index.ts --outdir dist --target node --minify",
+    "build:check": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "start:bun": "bun dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "twilio:list": "bun run scripts/configure-twilio.ts list",
+    "twilio:configure": "bun run scripts/configure-twilio.ts configure",
+    "twilio:buy": "bun run scripts/configure-twilio.ts buy"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@deepgram/sdk": "^3.0.0",
     "elevenlabs": "^0.10.0",
     "twilio": "^5.0.0",
-    
     "hono": "^4.0.0",
     "@hono/node-server": "^1.8.0",
     "ws": "^8.16.0",
-    
     "openai": "^4.28.0",
     "@pinecone-database/pinecone": "^2.0.0",
-    
     "dotenv": "^16.4.0"
   },
   "devDependencies": {

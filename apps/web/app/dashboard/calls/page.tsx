@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { 
   Phone, 
@@ -16,103 +16,10 @@ import {
   Download,
   CheckCircle2,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react'
-
-// Mock data
-const allCalls = [
-  {
-    id: '1',
-    caller: '+34 612 345 678',
-    callerName: 'Ana Martínez',
-    time: '14:32',
-    date: 'Hoy',
-    fullDate: '2024-01-15',
-    duration: '3:24',
-    status: 'completed',
-    outcome: 'appointment',
-    sentiment: 'positive',
-    summary: 'Reservó cita para limpieza dental el martes a las 10:00. Preguntó por el precio y confirmó que tiene seguro Sanitas.',
-  },
-  {
-    id: '2',
-    caller: '+34 623 456 789',
-    callerName: null,
-    time: '14:09',
-    date: 'Hoy',
-    fullDate: '2024-01-15',
-    duration: '1:45',
-    status: 'completed',
-    outcome: 'info',
-    sentiment: 'neutral',
-    summary: 'Preguntó por horarios y precios de blanqueamiento. No reservó pero dijo que llamaría la próxima semana.',
-  },
-  {
-    id: '3',
-    caller: '+34 634 567 890',
-    callerName: 'Carlos López',
-    time: '13:21',
-    date: 'Hoy',
-    fullDate: '2024-01-15',
-    duration: '0:45',
-    status: 'transferred',
-    outcome: 'transfer',
-    sentiment: 'urgent',
-    summary: 'Urgencia dental - dolor intenso. Transferido al Dr. García inmediatamente.',
-  },
-  {
-    id: '4',
-    caller: '+34 645 678 901',
-    callerName: 'Laura Fernández',
-    time: '11:15',
-    date: 'Hoy',
-    fullDate: '2024-01-15',
-    duration: '2:12',
-    status: 'completed',
-    outcome: 'appointment',
-    sentiment: 'positive',
-    summary: 'Reservó revisión para su hijo de 8 años. Primera visita, preguntó por especialista infantil.',
-  },
-  {
-    id: '5',
-    caller: '+34 656 789 012',
-    callerName: null,
-    time: '10:03',
-    date: 'Hoy',
-    fullDate: '2024-01-15',
-    duration: '0:32',
-    status: 'missed',
-    outcome: 'missed',
-    sentiment: 'unknown',
-    summary: 'Llamada perdida - el cliente colgó antes de conectar con el AI.',
-  },
-  {
-    id: '6',
-    caller: '+34 667 890 123',
-    callerName: 'Pedro Sánchez',
-    time: '18:45',
-    date: 'Ayer',
-    fullDate: '2024-01-14',
-    duration: '4:12',
-    status: 'completed',
-    outcome: 'appointment',
-    sentiment: 'positive',
-    summary: 'Reservó cita para ortodoncia. Interesado en Invisalign, se le envió información por WhatsApp.',
-  },
-  {
-    id: '7',
-    caller: '+34 678 901 234',
-    callerName: 'María Gómez',
-    time: '16:30',
-    date: 'Ayer',
-    fullDate: '2024-01-14',
-    duration: '1:55',
-    status: 'completed',
-    outcome: 'info',
-    sentiment: 'neutral',
-    summary: 'Consulta sobre tratamiento de conducto. Pidió presupuesto que se enviará por email.',
-  },
-]
+import { useCalls, type Call, type CallStats } from '@/lib/hooks/use-dashboard-data'
 
 const filters = [
   { id: 'all', label: 'Todas' },
@@ -122,32 +29,51 @@ const filters = [
   { id: 'missed', label: 'Perdidas' },
 ]
 
+function CallSkeleton() {
+  return (
+    <div className="flex items-center gap-4 p-5 animate-pulse">
+      <div className="w-12 h-12 rounded-xl bg-white/10" />
+      <div className="flex-1">
+        <div className="w-40 h-5 bg-white/10 rounded mb-2" />
+        <div className="w-64 h-4 bg-white/10 rounded" />
+      </div>
+      <div className="w-16 h-10 bg-white/10 rounded" />
+    </div>
+  )
+}
+
 export default function CallsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
   const [showFilters, setShowFilters] = useState(false)
+  
+  const { calls, stats, loading, error, refetch } = useCalls({ filter: activeFilter })
 
-  // Filter calls
-  const filteredCalls = allCalls.filter(call => {
-    const matchesSearch = 
+  // Filter calls by search query
+  const filteredCalls = calls.filter(call => {
+    if (!searchQuery) return true
+    const query = searchQuery.toLowerCase()
+    return (
       call.caller.includes(searchQuery) ||
-      call.callerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      call.summary.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesFilter = activeFilter === 'all' || call.outcome === activeFilter
-    
-    return matchesSearch && matchesFilter
+      call.callerName?.toLowerCase().includes(query) ||
+      call.summary.toLowerCase().includes(query)
+    )
   })
 
   // Group calls by date
   const groupedCalls = filteredCalls.reduce((groups, call) => {
-    const date = call.date
+    const date = call.date || 'Hoy'
     if (!groups[date]) {
       groups[date] = []
     }
     groups[date].push(call)
     return groups
-  }, {} as Record<string, typeof allCalls>)
+  }, {} as Record<string, Call[]>)
+
+  // Refetch when filter changes
+  useEffect(() => {
+    refetch()
+  }, [activeFilter])
 
   return (
     <div className="space-y-6">
@@ -227,41 +153,45 @@ export default function CallsPage() {
       {/* Stats summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-          <p className="text-2xl font-bold text-white">{allCalls.length}</p>
+          <p className="text-2xl font-bold text-white">{stats.total}</p>
           <p className="text-sm text-slate-400">Total llamadas</p>
         </div>
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-          <p className="text-2xl font-bold text-emerald-400">
-            {allCalls.filter(c => c.outcome === 'appointment').length}
-          </p>
+          <p className="text-2xl font-bold text-emerald-400">{stats.appointments}</p>
           <p className="text-sm text-slate-400">Citas reservadas</p>
         </div>
         <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-          <p className="text-2xl font-bold text-blue-400">
-            {allCalls.filter(c => c.outcome === 'info').length}
-          </p>
+          <p className="text-2xl font-bold text-blue-400">{stats.info}</p>
           <p className="text-sm text-slate-400">Consultas</p>
         </div>
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-          <p className="text-2xl font-bold text-amber-400">
-            {allCalls.filter(c => c.outcome === 'missed' || c.outcome === 'transfer').length}
-          </p>
+          <p className="text-2xl font-bold text-amber-400">{stats.attention}</p>
           <p className="text-sm text-slate-400">Requieren atención</p>
         </div>
       </div>
 
       {/* Calls List */}
       <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-        {Object.entries(groupedCalls).length === 0 ? (
+        {loading ? (
+          <div className="divide-y divide-white/5">
+            <CallSkeleton />
+            <CallSkeleton />
+            <CallSkeleton />
+            <CallSkeleton />
+            <CallSkeleton />
+          </div>
+        ) : Object.entries(groupedCalls).length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
               <Phone className="w-8 h-8 text-slate-500" />
             </div>
             <p className="text-lg font-medium text-white mb-2">No hay llamadas</p>
-            <p className="text-slate-400">No se encontraron llamadas con estos filtros</p>
+            <p className="text-slate-400">
+              {searchQuery ? 'No se encontraron llamadas con estos filtros' : 'Las llamadas atendidas por tu AI aparecerán aquí'}
+            </p>
           </div>
         ) : (
-          Object.entries(groupedCalls).map(([date, calls]) => (
+          Object.entries(groupedCalls).map(([date, dateCalls]) => (
             <div key={date}>
               {/* Date header */}
               <div className="px-5 py-3 bg-white/5 border-b border-white/10">
@@ -270,7 +200,7 @@ export default function CallsPage() {
               
               {/* Calls */}
               <div className="divide-y divide-white/5">
-                {calls.map((call) => (
+                {dateCalls.map((call) => (
                   <Link
                     key={call.id}
                     href={`/dashboard/calls/${call.id}`}

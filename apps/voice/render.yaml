@@ -1,0 +1,33 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: recepcionista-voice
+    env: node
+    region: frankfurt  # EU region for lower latency to Spain
+    plan: starter      # Upgrade for production traffic
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: BASE_URL
+        sync: false  # Set manually after deployment
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: WEB_APP_URL
+        sync: false  # URL to the Next.js app for calendar APIs

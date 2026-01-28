@@ -1,23 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkAvailability } from '@/lib/integrations/calendar'
+import { getCalendarIntegration } from '@/lib/db/queries'
 
 /**
  * Check calendar availability for a specific date
  * POST /api/calendar/availability
+ * 
+ * Body: { businessId, date, serviceType? }
+ * Note: connectionId is optional - if not provided, looks up from database
  */
 export async function POST(request: NextRequest) {
   try {
     const { businessId, connectionId, date, serviceType } = await request.json()
     
-    if (!businessId || !connectionId || !date) {
+    if (!businessId || !date) {
       return NextResponse.json(
-        { success: false, message: 'businessId, connectionId, and date are required' },
+        { success: false, message: 'businessId and date are required' },
         { status: 400 }
       )
     }
     
+    // Get calendar integration from database if not provided
+    let integrationId: string
+    let connId: string = connectionId
+    
+    if (!connectionId) {
+      const integration = await getCalendarIntegration(businessId)
+      if (!integration) {
+        return NextResponse.json(
+          { success: false, message: 'No hay calendario conectado. Por favor, conecta tu calendario primero.' },
+          { status: 404 }
+        )
+      }
+      integrationId = integration.integrationId
+      connId = integration.connectionId
+    } else {
+      // If connectionId provided, determine integration type from it
+      // Convention: connectionId format is "businessId" and integrationId comes from DB
+      const integration = await getCalendarIntegration(businessId)
+      integrationId = integration?.integrationId || 'google-calendar'
+    }
+    
     const dateObj = new Date(date)
-    const slots = await checkAvailability(connectionId, dateObj)
+    const slots = await checkAvailability(integrationId, connId, dateObj)
     
     // Filter available slots
     const availableSlots = slots.filter(s => s.available)

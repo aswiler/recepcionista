@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-// In production, you'd use Nango SDK here
-// For now, we'll return mock data or use Nango if configured
+import { getCalendarIntegrations } from '@/lib/db/queries'
+import { db } from '@/lib/db'
+import { calendarIntegrations } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
 
 /**
- * List calendar integrations
+ * List calendar integrations for a business
  * GET /api/integrations/calendar?businessId=xxx
+ * 
+ * Returns both database records and live status from Nango
  */
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get('businessId')
@@ -14,12 +17,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'businessId required' }, { status: 400 })
   }
   
-  // If Nango is configured, list real connections
-  const secretKey = process.env.NANGO_SECRET_KEY
-  
-  if (secretKey) {
-    try {
-      // Use Nango API directly
+  try {
+    // First, get integrations from our database
+    const dbIntegrations = await getCalendarIntegrations(businessId)
+    
+    // If Nango is configured, verify connections are still valid
+    const secretKey = process.env.NANGO_SECRET_KEY
+    
+    if (secretKey && dbIntegrations.length > 0) {
+      // Fetch connection details from Nango to verify status
       const response = await fetch('https://api.nango.dev/connection', {
         headers: {
           'Authorization': `Bearer ${secretKey}`,
@@ -28,25 +34,53 @@ export async function GET(request: NextRequest) {
       
       if (response.ok) {
         const data = await response.json()
-        // Filter connections for this business
-        const businessConnections = data.connections?.filter(
-          (c: { connection_id: string }) => c.connection_id === businessId
-        ) || []
+        const nangoConnections = data.connections || []
         
-        return NextResponse.json({ connections: businessConnections })
+        // Map database records with Nango status
+        const enrichedConnections = dbIntegrations.map(dbInt => {
+          const nangoConn = nangoConnections.find(
+            (c: { connection_id: string; provider_config_key: string }) => 
+              c.connection_id === dbInt.connectionId && 
+              c.provider_config_key === dbInt.integrationId
+          )
+          
+          return {
+            ...dbInt,
+            integration_id: dbInt.integrationId,
+            connection_id: dbInt.connectionId,
+            provider: dbInt.provider,
+            isActive: dbInt.isActive && !!nangoConn,
+            created_at: dbInt.createdAt?.toISOString(),
+            nangoStatus: nangoConn ? 'connected' : 'disconnected',
+          }
+        })
+        
+        return NextResponse.json({ connections: enrichedConnections })
       }
-    } catch (error) {
-      console.error('Error fetching from Nango:', error)
     }
+    
+    // Return database records if Nango verification fails
+    const connections = dbIntegrations.map(dbInt => ({
+      ...dbInt,
+      integration_id: dbInt.integrationId,
+      connection_id: dbInt.connectionId,
+      provider: dbInt.provider,
+      created_at: dbInt.createdAt?.toISOString(),
+    }))
+    
+    return NextResponse.json({ connections })
+    
+  } catch (error) {
+    console.error('Error fetching calendar integrations:', error)
+    return NextResponse.json({ connections: [] })
   }
-  
-  // Return empty if not configured
-  return NextResponse.json({ connections: [] })
 }
 
 /**
  * Delete a calendar integration
  * DELETE /api/integrations/calendar?integrationId=xxx&connectionId=xxx
+ * 
+ * Removes the connection from both Nango and our database
  */
 export async function DELETE(request: NextRequest) {
   const integrationId = request.nextUrl.searchParams.get('integrationId')
@@ -61,31 +95,36 @@ export async function DELETE(request: NextRequest) {
   
   const secretKey = process.env.NANGO_SECRET_KEY
   
-  if (!secretKey) {
-    return NextResponse.json(
-      { error: 'Nango not configured' },
-      { status: 500 }
-    )
-  }
-  
   try {
-    const response = await fetch(
-      `https://api.nango.dev/connection/${connectionId}?provider_config_key=${integrationId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${secretKey}`,
-        },
+    // Delete from Nango if configured
+    if (secretKey) {
+      const response = await fetch(
+        `https://api.nango.dev/connection/${connectionId}?provider_config_key=${integrationId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${secretKey}`,
+          },
+        }
+      )
+      
+      if (!response.ok) {
+        const error = await response.text()
+        console.error('Nango delete error:', error)
+        // Continue to deactivate in our database anyway
       }
-    )
-    
-    if (response.ok) {
-      return NextResponse.json({ success: true })
-    } else {
-      const error = await response.text()
-      console.error('Nango delete error:', error)
-      return NextResponse.json({ error: 'Failed to delete connection' }, { status: 500 })
     }
+    
+    // Mark as inactive in our database
+    await db
+      .update(calendarIntegrations)
+      .set({ isActive: false })
+      .where(eq(calendarIntegrations.connectionId, connectionId))
+    
+    console.log(`🗑️ Calendar integration deleted: ${connectionId}`)
+    
+    return NextResponse.json({ success: true })
+    
   } catch (error) {
     console.error('Error deleting connection:', error)
     return NextResponse.json({ error: 'Failed to delete connection' }, { status: 500 })

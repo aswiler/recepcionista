@@ -1,73 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { checkAvailability } from '@/lib/integrations/calendar'
+import { getNextAvailableSlots } from '@/lib/integrations/calendar'
+import { getCalendarIntegration } from '@/lib/db/queries'
 
 /**
  * Get next available slots
  * POST /api/calendar/next-available
+ * 
+ * Body: { businessId, preferredTime?, serviceType? }
  */
 export async function POST(request: NextRequest) {
   try {
     const { businessId, connectionId, preferredTime, serviceType } = await request.json()
     
-    if (!businessId || !connectionId) {
+    if (!businessId) {
       return NextResponse.json(
-        { success: false, message: 'businessId and connectionId are required' },
+        { success: false, message: 'businessId is required' },
         { status: 400 }
       )
     }
     
-    // Check next 7 days
-    const availableSlots: { date: string; time: string; formatted: string }[] = []
-    const today = new Date()
-    
-    for (let i = 1; i <= 7 && availableSlots.length < 5; i++) {
-      const checkDate = new Date(today)
-      checkDate.setDate(today.getDate() + i)
-      
-      // Skip weekends if business hours suggest it
-      const dayOfWeek = checkDate.getDay()
-      if (dayOfWeek === 0) continue // Skip Sunday
-      
-      const slots = await checkAvailability(connectionId, checkDate)
-      
-      for (const slot of slots) {
-        if (!slot.available) continue
-        
-        const slotTime = new Date(slot.start)
-        const hour = slotTime.getHours()
-        
-        // Filter by preferred time
-        if (preferredTime === 'morning' && hour >= 14) continue
-        if (preferredTime === 'afternoon' && hour < 14) continue
-        
-        const time = slotTime.toLocaleTimeString('es-ES', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        })
-        
-        const date = checkDate.toISOString().split('T')[0]
-        const formatted = formatSlotSpanish(checkDate, time, i)
-        
-        availableSlots.push({ date, time, formatted })
-        
-        if (availableSlots.length >= 5) break
-      }
+    // Get calendar integration from database
+    const integration = await getCalendarIntegration(businessId)
+    if (!integration) {
+      return NextResponse.json(
+        { success: false, message: 'No hay calendario conectado. Por favor, conecta tu calendario primero.' },
+        { status: 404 }
+      )
     }
+    
+    const integrationId = integration.integrationId
+    const connId = connectionId || integration.connectionId
+    
+    // Map preferred time to expected format
+    const preferredTimeNormalized = preferredTime === 'morning' ? 'morning' 
+      : preferredTime === 'afternoon' ? 'afternoon' 
+      : 'any'
+    
+    // Get next available slots using the integrated function
+    const slots = await getNextAvailableSlots(
+      integrationId, 
+      connId, 
+      preferredTimeNormalized as 'morning' | 'afternoon' | 'any'
+    )
+    
+    // Format slots for voice AI response
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const formattedSlots = slots.map(slot => {
+      const slotDate = new Date(slot.start)
+      const time = slotDate.toLocaleTimeString('es-ES', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })
+      const date = slotDate.toISOString().split('T')[0]
+      
+      // Calculate days from now
+      const daysFromNow = Math.floor((slotDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      const formatted = formatSlotSpanish(slotDate, time, daysFromNow)
+      
+      return { date, time, formatted }
+    })
     
     // Build message
     let message = ''
-    if (availableSlots.length === 0) {
+    if (formattedSlots.length === 0) {
       message = 'Lo siento, no he encontrado huecos disponibles en los próximos días.'
-    } else if (availableSlots.length === 1) {
-      message = `El próximo hueco disponible es ${availableSlots[0].formatted}.`
+    } else if (formattedSlots.length === 1) {
+      message = `El próximo hueco disponible es ${formattedSlots[0].formatted}.`
     } else {
-      const firstThree = availableSlots.slice(0, 3).map(s => s.formatted)
+      const firstThree = formattedSlots.slice(0, 3).map(s => s.formatted)
       message = `Los próximos huecos disponibles son: ${firstThree.join(', ')}.`
     }
     
     return NextResponse.json({
       success: true,
-      slots: availableSlots,
+      slots: formattedSlots,
       message,
     })
     
