@@ -8,10 +8,25 @@
 import OpenAI from 'openai'
 import { Pinecone } from '@pinecone-database/pinecone'
 
-const openai = new OpenAI()
-const pinecone = new Pinecone()
-
 const INDEX_NAME = 'recepcionista'
+
+// Lazy-loaded clients (to avoid build-time initialization errors)
+let _openai: OpenAI | null = null
+let _pinecone: Pinecone | null = null
+
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI()
+  }
+  return _openai
+}
+
+function getPinecone(): Pinecone {
+  if (!_pinecone) {
+    _pinecone = new Pinecone()
+  }
+  return _pinecone
+}
 
 // Types
 export interface AIResponse {
@@ -219,7 +234,7 @@ export async function generateResponse(
   tools.push(humanHandoffTool)
   
   // 5. Generate response with OpenAI (with tools if any enabled)
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: 'gpt-4o-mini',
     messages,
     max_tokens: channel === 'voice' ? 150 : 300,
@@ -262,7 +277,7 @@ export async function generateResponse(
       })),
     ]
     
-    const finalResponse = await openai.chat.completions.create({
+    const finalResponse = await getOpenAI().chat.completions.create({
       model: 'gpt-4o-mini',
       messages: toolMessages,
       max_tokens: channel === 'voice' ? 150 : 300,
@@ -443,13 +458,13 @@ export async function getBusinessContext(
 ): Promise<string> {
   try {
     // Generate embedding for the query
-    const embedding = await openai.embeddings.create({
+    const embedding = await getOpenAI().embeddings.create({
       model: 'text-embedding-3-small',
       input: query,
     })
     
     // Query Pinecone
-    const index = pinecone.index(INDEX_NAME)
+    const index = getPinecone().index(INDEX_NAME)
     const results = await index.namespace(`biz_${businessId}`).query({
       vector: embedding.data[0].embedding,
       topK: 5,
@@ -478,7 +493,7 @@ export async function indexBusinessContent(
   if (!texts.length) return 0
   
   // Generate embeddings
-  const embeddings = await openai.embeddings.create({
+  const embeddings = await getOpenAI().embeddings.create({
     model: 'text-embedding-3-small',
     input: texts,
   })
@@ -496,7 +511,7 @@ export async function indexBusinessContent(
   }))
   
   // Upsert to Pinecone
-  const index = pinecone.index(INDEX_NAME)
+  const index = getPinecone().index(INDEX_NAME)
   await index.namespace(`biz_${businessId}`).upsert(vectors)
   
   return vectors.length
@@ -506,7 +521,7 @@ export async function indexBusinessContent(
  * Delete all business content from Pinecone
  */
 export async function deleteBusinessContent(businessId: string): Promise<void> {
-  const index = pinecone.index(INDEX_NAME)
+  const index = getPinecone().index(INDEX_NAME)
   await index.namespace(`biz_${businessId}`).deleteAll()
 }
 
