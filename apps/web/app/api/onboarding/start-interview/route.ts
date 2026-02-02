@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import twilio from 'twilio'
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID!,
-  process.env.TWILIO_AUTH_TOKEN!
-)
+export const dynamic = 'force-dynamic'
+
+// Lazy initialization of Twilio client (only when needed for phone calls)
+function getTwilioClient() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID
+  const authToken = process.env.TWILIO_AUTH_TOKEN
+  
+  if (!accountSid || !authToken) {
+    return null
+  }
+  
+  // Dynamic import to avoid build-time initialization
+  const twilio = require('twilio')
+  return twilio(accountSid, authToken)
+}
 
 /**
  * Start a voice interview call
@@ -18,10 +28,6 @@ export async function POST(request: NextRequest) {
 
     // Generate a unique session ID for this interview
     const sessionId = `interview_${Date.now()}_${Math.random().toString(36).slice(2)}`
-
-    // Store scraped data in cache/DB for the voice service to access
-    // In production, use Redis or a proper session store
-    // For now, we'll pass it in the webhook URL params
 
     if (useBrowser) {
       // Return WebRTC token for browser-based call
@@ -39,6 +45,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Phone number required for outbound call' },
         { status: 400 }
+      )
+    }
+
+    const client = getTwilioClient()
+    if (!client) {
+      return NextResponse.json(
+        { error: 'Phone calls not configured. Please use browser-based interview.' },
+        { status: 503 }
       )
     }
 
