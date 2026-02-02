@@ -2,15 +2,56 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Globe, ArrowRight, Loader2, Sparkles } from 'lucide-react'
+import { Building2, ArrowRight, Loader2, User, Mail, Globe, Briefcase } from 'lucide-react'
 
-export default function OnboardingStart() {
+const INDUSTRIES = [
+  { value: 'real-estate', label: 'Inmobiliaria' },
+  { value: 'healthcare', label: 'Salud y Medicina' },
+  { value: 'restaurant', label: 'Restaurante / Hostelería' },
+  { value: 'retail', label: 'Comercio / Tienda' },
+  { value: 'professional', label: 'Servicios Profesionales' },
+  { value: 'beauty', label: 'Belleza y Bienestar' },
+  { value: 'automotive', label: 'Automoción' },
+  { value: 'legal', label: 'Legal / Abogados' },
+  { value: 'fitness', label: 'Gimnasio / Fitness' },
+  { value: 'education', label: 'Educación / Formación' },
+  { value: 'other', label: 'Otro' },
+]
+
+export default function OnboardingStep1() {
   const router = useRouter()
-  const [websiteUrl, setWebsiteUrl] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [skipWebsite, setSkipWebsite] = useState(false)
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    businessName: '',
+    industry: '',
+    websiteUrl: '',
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Normalize URL - add https:// if missing
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = 'Tu nombre es requerido'
+    }
+    if (!formData.email.trim()) {
+      newErrors.email = 'El email es requerido'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Introduce un email válido'
+    }
+    if (!formData.businessName.trim()) {
+      newErrors.businessName = 'El nombre de tu negocio es requerido'
+    }
+    if (!formData.industry) {
+      newErrors.industry = 'Selecciona una industria'
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
   const normalizeUrl = (url: string): string => {
     let normalized = url.trim()
     if (!normalized) return ''
@@ -22,36 +63,51 @@ export default function OnboardingStart() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!validateForm()) return
+    
     setIsLoading(true)
 
     try {
-      // If website provided, scrape it first
-      if (websiteUrl && !skipWebsite) {
-        const normalizedUrl = normalizeUrl(websiteUrl)
-        const response = await fetch('/api/onboarding/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: normalizedUrl }),
-        })
+      // Store form data in session storage
+      const onboardingData = {
+        ...formData,
+        websiteUrl: normalizeUrl(formData.websiteUrl),
+      }
+      sessionStorage.setItem('onboardingData', JSON.stringify(onboardingData))
 
-        if (!response.ok) {
-          throw new Error('Failed to scrape website')
+      // If website provided, scrape it
+      if (formData.websiteUrl) {
+        try {
+          const response = await fetch('/api/onboarding/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: normalizeUrl(formData.websiteUrl) }),
+          })
+
+          if (response.ok) {
+            const { scrapedData } = await response.json()
+            sessionStorage.setItem('scrapedData', JSON.stringify(scrapedData))
+          }
+        } catch (error) {
+          console.error('Error scraping website:', error)
+          // Continue anyway
         }
-
-        const { scrapedData } = await response.json()
-        
-        // Store scraped data in session storage for interview
-        sessionStorage.setItem('scrapedData', JSON.stringify(scrapedData))
       }
 
-      // Go to interview page
-      router.push('/onboarding/interview')
+      // Go to voice selection (Step 2)
+      router.push('/onboarding/voice')
     } catch (error) {
       console.error('Error:', error)
-      // Still continue to interview even if scrape fails
-      router.push('/onboarding/interview')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }))
     }
   }
 
@@ -59,63 +115,149 @@ export default function OnboardingStart() {
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
       
-      <div className="relative flex min-h-screen items-center justify-center px-4">
+      <div className="relative flex min-h-screen items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg">
+          {/* Progress indicator */}
+          <div className="flex items-center justify-center gap-2 mb-8">
+            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">1</div>
+            <div className="w-12 h-1 bg-white/20 rounded" />
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white/50 text-sm">2</div>
+            <div className="w-12 h-1 bg-white/20 rounded" />
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white/50 text-sm">3</div>
+          </div>
+
           {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-500/20 mb-6">
-              <Sparkles className="w-8 h-8 text-blue-400" />
+              <Building2 className="w-8 h-8 text-blue-400" />
             </div>
             <h1 className="text-3xl font-bold text-white mb-3">
-              Vamos a conocer tu negocio
+              Cuéntanos sobre tu negocio
             </h1>
             <p className="text-lg text-blue-200">
-              Tu recepcionista AI aprenderá todo sobre ti en una breve conversación
+              Esta información ayudará a tu recepcionista AI a representarte mejor
             </p>
           </div>
 
           {/* Form */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Website URL */}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Full Name */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-2">
-                  Tu sitio web (opcional)
+                  Tu nombre completo *
+                </label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
+                  <input
+                    type="text"
+                    value={formData.fullName}
+                    onChange={(e) => handleChange('fullName', e.target.value)}
+                    placeholder="María García"
+                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
+                             text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
+                             focus:ring-blue-500 focus:border-transparent
+                             ${errors.fullName ? 'border-red-500' : 'border-white/20'}`}
+                  />
+                </div>
+                {errors.fullName && <p className="mt-1 text-sm text-red-400">{errors.fullName}</p>}
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  Email *
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleChange('email', e.target.value)}
+                    placeholder="maria@tuempresa.com"
+                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
+                             text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
+                             focus:ring-blue-500 focus:border-transparent
+                             ${errors.email ? 'border-red-500' : 'border-white/20'}`}
+                  />
+                </div>
+                {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email}</p>}
+              </div>
+
+              {/* Business Name */}
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  Nombre de tu negocio *
+                </label>
+                <div className="relative">
+                  <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
+                  <input
+                    type="text"
+                    value={formData.businessName}
+                    onChange={(e) => handleChange('businessName', e.target.value)}
+                    placeholder="Clínica Dental García"
+                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
+                             text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
+                             focus:ring-blue-500 focus:border-transparent
+                             ${errors.businessName ? 'border-red-500' : 'border-white/20'}`}
+                  />
+                </div>
+                {errors.businessName && <p className="mt-1 text-sm text-red-400">{errors.businessName}</p>}
+              </div>
+
+              {/* Industry */}
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  Industria *
+                </label>
+                <div className="relative">
+                  <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
+                  <select
+                    value={formData.industry}
+                    onChange={(e) => handleChange('industry', e.target.value)}
+                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
+                             text-white focus:outline-none focus:ring-2 
+                             focus:ring-blue-500 focus:border-transparent appearance-none
+                             ${errors.industry ? 'border-red-500' : 'border-white/20'}
+                             ${!formData.industry ? 'text-blue-300/50' : ''}`}
+                  >
+                    <option value="" className="bg-slate-800">Selecciona tu industria</option>
+                    {INDUSTRIES.map(ind => (
+                      <option key={ind.value} value={ind.value} className="bg-slate-800">
+                        {ind.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                {errors.industry && <p className="mt-1 text-sm text-red-400">{errors.industry}</p>}
+              </div>
+
+              {/* Website URL (optional) */}
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  Sitio web <span className="text-blue-300/50">(opcional)</span>
                 </label>
                 <div className="relative">
                   <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
                   <input
                     type="text"
-                    value={websiteUrl}
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    value={formData.websiteUrl}
+                    onChange={(e) => handleChange('websiteUrl', e.target.value)}
                     placeholder="tuempresa.com"
                     className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl 
                              text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
                              focus:ring-blue-500 focus:border-transparent"
-                    disabled={skipWebsite}
                   />
                 </div>
-                <p className="mt-2 text-sm text-blue-300/70">
-                  Si tienes web, la analizaremos para aprender más rápido
+                <p className="mt-1 text-sm text-blue-300/50">
+                  Si tienes web, la analizaremos para entrenar a tu AI más rápido
                 </p>
               </div>
-
-              {/* Skip website option */}
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={skipWebsite}
-                  onChange={(e) => {
-                    setSkipWebsite(e.target.checked)
-                    if (e.target.checked) setWebsiteUrl('')
-                  }}
-                  className="w-5 h-5 rounded border-white/20 bg-white/10 text-blue-500 
-                           focus:ring-blue-500 focus:ring-offset-0"
-                />
-                <span className="text-blue-200">
-                  No tengo web, prefiero explicarlo por voz
-                </span>
-              </label>
 
               {/* Submit button */}
               <button
@@ -124,53 +266,27 @@ export default function OnboardingStart() {
                 className="w-full flex items-center justify-center gap-2 py-4 px-6 
                          bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50
                          text-white font-semibold rounded-xl transition-all
-                         hover:scale-[1.02] active:scale-[0.98]"
+                         hover:scale-[1.02] active:scale-[0.98] mt-6"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Analizando tu web...
+                    {formData.websiteUrl ? 'Analizando tu web...' : 'Continuando...'}
                   </>
                 ) : (
                   <>
-                    Empezar entrevista
+                    Continuar
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
               </button>
             </form>
-
-            {/* What to expect */}
-            <div className="mt-8 pt-6 border-t border-white/10">
-              <h3 className="text-sm font-medium text-blue-200 mb-3">
-                ¿Qué va a pasar?
-              </h3>
-              <ul className="space-y-2 text-sm text-blue-300/70">
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">1.</span>
-                  Tendrás una conversación por voz con tu AI (~5 min)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">2.</span>
-                  Te preguntará sobre tus servicios, horarios, etc.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">3.</span>
-                  Aprenderá todo lo necesario para atender a tus clientes
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">4.</span>
-                  Podrás revisar y editar la información después
-                </li>
-              </ul>
-            </div>
           </div>
 
           {/* Trust badges */}
           <div className="mt-8 flex items-center justify-center gap-6 text-blue-300/50 text-sm">
             <span>🔒 Datos encriptados</span>
             <span>🇪🇺 GDPR compliant</span>
-            <span>🇪🇸 Español nativo</span>
           </div>
         </div>
       </div>

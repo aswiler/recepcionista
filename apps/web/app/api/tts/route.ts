@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 
-// ElevenLabs voice IDs - Spanish voices
-const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL' // Sarah - clear, professional
+// Default voice ID - Sarah (professional, clear)
+const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
 
 /**
  * Text-to-Speech using ElevenLabs
  * Converts AI text responses to natural speech
+ * 
+ * @param text - The text to convert to speech
+ * @param voiceId - Optional ElevenLabs voice ID (defaults to Sarah)
  */
 export async function POST(request: NextRequest) {
   try {
-    const { text } = await request.json()
+    const { text, voiceId } = await request.json()
 
     if (!text) {
       return NextResponse.json({ error: 'No text provided' }, { status: 400 })
@@ -22,7 +27,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'TTS not configured' }, { status: 500 })
     }
 
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+    // Use provided voice ID or default
+    const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
+
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
       method: 'POST',
       headers: {
         'Accept': 'audio/mpeg',

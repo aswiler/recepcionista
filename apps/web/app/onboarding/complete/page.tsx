@@ -19,7 +19,9 @@ import {
   ChevronDown,
   ChevronUp,
   Target,
-  Zap
+  Zap,
+  Volume2,
+  Loader2
 } from 'lucide-react'
 
 interface ServiceDetail {
@@ -34,6 +36,14 @@ interface FAQ {
   question: string
   answer: string
   category?: string
+}
+
+interface OnboardingData {
+  fullName: string
+  email: string
+  businessName: string
+  industry: string
+  websiteUrl: string
 }
 
 interface LearnedInfo {
@@ -61,10 +71,26 @@ interface LearnedInfo {
 export default function OnboardingCompletePage() {
   const router = useRouter()
   const [info, setInfo] = useState<LearnedInfo>({})
+  const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
+  const [selectedVoice, setSelectedVoice] = useState<{ id: string; name: string } | null>(null)
   const [editingSection, setEditingSection] = useState<string | null>(null)
   const [expandedFaqs, setExpandedFaqs] = useState<Set<number>>(new Set([0, 1, 2]))
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
+    // Load onboarding data (from step 1)
+    const storedOnboarding = sessionStorage.getItem('onboardingData')
+    if (storedOnboarding) {
+      setOnboardingData(JSON.parse(storedOnboarding))
+    }
+
+    // Load selected voice (from step 2)
+    const voiceId = sessionStorage.getItem('selectedVoice')
+    const voiceName = sessionStorage.getItem('selectedVoiceName')
+    if (voiceId) {
+      setSelectedVoice({ id: voiceId, name: voiceName || 'Voz seleccionada' })
+    }
+
     // Try to load learned info from interview
     const storedLearned = sessionStorage.getItem('learnedInfo')
     if (storedLearned) {
@@ -108,6 +134,21 @@ export default function OnboardingCompletePage() {
       }
     }
 
+    // Use onboarding data for business name
+    if (storedOnboarding) {
+      const data = JSON.parse(storedOnboarding)
+      setInfo({
+        businessName: data.businessName || 'Tu negocio',
+        businessType: data.industry || 'negocio',
+        services: [],
+        faqs: [],
+        differentiators: [],
+        commonObjections: [],
+        tone: 'Profesional y amable',
+      })
+      return
+    }
+
     // Fallback: prompt user to add info
     setInfo({
       businessName: 'Tu negocio',
@@ -136,8 +177,58 @@ export default function OnboardingCompletePage() {
     alert('¡Llamada de prueba iniciada! Tu teléfono sonará en unos segundos.')
   }
 
-  const goToDashboard = () => {
-    router.push('/dashboard')
+  const goToDashboard = async () => {
+    setIsSaving(true)
+    
+    try {
+      // Save all onboarding data to database
+      const response = await fetch('/api/onboarding/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // User info
+          fullName: onboardingData?.fullName,
+          email: onboardingData?.email,
+          
+          // Business info
+          businessName: onboardingData?.businessName || info.businessName,
+          industry: onboardingData?.industry || info.businessType,
+          website: onboardingData?.websiteUrl,
+          description: info.description,
+          
+          // Voice selection
+          voiceId: selectedVoice?.id,
+          voiceName: selectedVoice?.name,
+          
+          // Learned data
+          services: info.services,
+          hours: info.hours,
+          faqs: info.faqs,
+          differentiators: info.differentiators,
+        }),
+      })
+
+      if (!response.ok) {
+        console.error('Failed to save onboarding data')
+      }
+
+      // Clear session storage
+      sessionStorage.removeItem('onboardingData')
+      sessionStorage.removeItem('scrapedData')
+      sessionStorage.removeItem('selectedVoice')
+      sessionStorage.removeItem('selectedVoiceName')
+      sessionStorage.removeItem('interviewMessages')
+      sessionStorage.removeItem('learnedInfo')
+
+      // Go to dashboard
+      router.push('/dashboard')
+    } catch (error) {
+      console.error('Error saving onboarding data:', error)
+      // Still navigate even if save fails
+      router.push('/dashboard')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const faqsByCategory = (info.faqs || []).reduce((acc, faq) => {
@@ -217,6 +308,24 @@ export default function OnboardingCompletePage() {
               )}
             </div>
           </InfoCard>
+
+          {/* Selected Voice */}
+          {selectedVoice && (
+            <InfoCard
+              title="Voz de tu recepcionista"
+              icon={<Volume2 className="w-5 h-5" />}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center">
+                  <Volume2 className="w-6 h-6 text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-white font-medium">{selectedVoice.name}</p>
+                  <p className="text-blue-300/70 text-sm">Voz de ElevenLabs</p>
+                </div>
+              </div>
+            </InfoCard>
+          )}
 
           {/* Services */}
           <InfoCard
@@ -470,12 +579,22 @@ export default function OnboardingCompletePage() {
           
           <button
             onClick={goToDashboard}
+            disabled={isSaving}
             className="flex items-center gap-3 px-8 py-4 bg-white/10 hover:bg-white/20 
                      text-white font-semibold rounded-full transition-all w-full sm:w-auto
-                     justify-center border border-white/20"
+                     justify-center border border-white/20 disabled:opacity-50"
           >
-            Ir al dashboard
-            <ArrowRight className="w-5 h-5" />
+            {isSaving ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Guardando...
+              </>
+            ) : (
+              <>
+                Ir al dashboard
+                <ArrowRight className="w-5 h-5" />
+              </>
+            )}
           </button>
         </div>
       </div>

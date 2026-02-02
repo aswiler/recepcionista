@@ -31,6 +31,8 @@ export const businesses = pgTable('businesses', {
   greeting: text('greeting'),
   personality: text('personality'),
   language: text('language').default('es'),
+  voiceId: text('voice_id'), // ElevenLabs voice ID
+  voiceName: text('voice_name'), // Display name of selected voice
   
   // Business hours (JSON)
   hours: json('hours').$type<{

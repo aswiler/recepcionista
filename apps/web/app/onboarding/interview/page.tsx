@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   Mic, 
@@ -9,7 +9,8 @@ import {
   Check, 
   Circle,
   Loader2,
-  MessageCircle
+  MessageCircle,
+  ArrowLeft
 } from 'lucide-react'
 
 interface Message {
@@ -32,12 +33,32 @@ export default function InterviewPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [currentTopic, setCurrentTopic] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState('')
   const [aiSpeaking, setAiSpeaking] = useState(false)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null)
+  const [businessName, setBusinessName] = useState<string>('')
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Check for onboarding data and load voice selection
+  useEffect(() => {
+    const onboardingData = sessionStorage.getItem('onboardingData')
+    if (!onboardingData) {
+      router.push('/onboarding')
+      return
+    }
+
+    // Load business name
+    const parsed = JSON.parse(onboardingData)
+    setBusinessName(parsed.businessName || '')
+
+    // Load selected voice
+    const voiceId = sessionStorage.getItem('selectedVoice')
+    if (voiceId) {
+      setSelectedVoiceId(voiceId)
+    }
+  }, [router])
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -48,13 +69,14 @@ export default function InterviewPage() {
   const startInterview = async () => {
     setStatus('processing')
     
-    // Get scraped data
+    // Get scraped data and onboarding data
     const scrapedData = sessionStorage.getItem('scrapedData')
     const businessInfo = scrapedData ? JSON.parse(scrapedData) : {}
     
-    // Generate greeting
-    const greeting = businessInfo.businessName 
-      ? `¡Hola! Veo que tu negocio es ${businessInfo.businessName}. Me encantaría conocer más sobre ti. ¿Puedes contarme brevemente qué servicios ofreces?`
+    // Generate greeting using business name
+    const name = businessName || businessInfo.businessName
+    const greeting = name 
+      ? `¡Hola! Veo que tu negocio es ${name}. Me encantaría conocer más sobre ti. ¿Puedes contarme brevemente qué servicios ofreces?`
       : `¡Hola! Soy tu asistente de Recepcionista.com. Voy a hacerte algunas preguntas para configurar tu recepcionista AI. ¿Puedes empezar contándome el nombre de tu negocio?`
     
     setMessages([{ role: 'assistant', text: greeting }])
@@ -64,17 +86,19 @@ export default function InterviewPage() {
     setStatus('listening')
   }
 
-  // Text-to-speech using browser API (fallback) or ElevenLabs
+  // Text-to-speech using ElevenLabs with selected voice
   const speakText = async (text: string) => {
     setAiSpeaking(true)
     setStatus('speaking')
     
     try {
-      // Try ElevenLabs API
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ 
+          text,
+          voiceId: selectedVoiceId, // Use selected voice
+        })
       })
       
       if (response.ok) {
@@ -83,8 +107,14 @@ export default function InterviewPage() {
         const audio = new Audio(audioUrl)
         
         await new Promise<void>((resolve) => {
-          audio.onended = () => resolve()
-          audio.onerror = () => resolve()
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl)
+            resolve()
+          }
+          audio.onerror = () => {
+            URL.revokeObjectURL(audioUrl)
+            resolve()
+          }
           audio.play().catch(() => resolve())
         })
       } else {
@@ -114,6 +144,8 @@ export default function InterviewPage() {
 
   // Start recording from microphone
   const startRecording = async () => {
+    if (isRecording || status === 'processing' || status === 'speaking') return
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
@@ -150,8 +182,12 @@ export default function InterviewPage() {
     }
   }
 
-  // Toggle recording
-  const toggleRecording = () => {
+  // Toggle recording (tap-to-toggle pattern for better mobile support)
+  const toggleRecording = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault() // Prevent ghost clicks on mobile
+    
+    if (status === 'processing' || status === 'speaking') return
+    
     if (isRecording) {
       stopRecording()
     } else {
@@ -194,7 +230,6 @@ export default function InterviewPage() {
 
       // Add user message
       setMessages(prev => [...prev, { role: 'user', text: userText }])
-      setTranscript('')
 
       // Get AI response
       const aiResponse = await fetch('/api/chat', {
@@ -241,7 +276,7 @@ export default function InterviewPage() {
   const skipInterview = () => {
     setStatus('complete')
     setMessages([
-      { role: 'assistant', text: 'Entrevista completada. Tu recepcionista está configurada con la información del sitio web.' }
+      { role: 'assistant', text: 'Entrevista completada. Tu recepcionista está configurada con la información proporcionada.' }
     ])
   }
 
@@ -250,14 +285,27 @@ export default function InterviewPage() {
     router.push('/onboarding/complete')
   }
 
+  const goBack = () => {
+    router.push('/onboarding/voice')
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
 
       <div className="relative min-h-screen flex">
         {/* Left panel - Chat */}
-        <div className="flex-1 flex flex-col p-8">
+        <div className="flex-1 flex flex-col p-4 md:p-8">
           <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full">
+            {/* Progress indicator */}
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <div className="w-8 h-8 rounded-full bg-blue-500/50 flex items-center justify-center text-white/70 text-sm font-medium">✓</div>
+              <div className="w-8 md:w-12 h-1 bg-blue-500/50 rounded" />
+              <div className="w-8 h-8 rounded-full bg-blue-500/50 flex items-center justify-center text-white/70 text-sm font-medium">✓</div>
+              <div className="w-8 md:w-12 h-1 bg-blue-500/50 rounded" />
+              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">3</div>
+            </div>
+
             {/* Header */}
             <div className="text-center mb-6">
               <h1 className="text-2xl font-bold text-white mb-2">
@@ -269,7 +317,7 @@ export default function InterviewPage() {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-6 mb-6 overflow-y-auto max-h-[50vh]">
+            <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-4 md:p-6 mb-6 overflow-y-auto max-h-[45vh] md:max-h-[50vh]">
               {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <MessageCircle className="w-12 h-12 text-blue-400/50 mb-4" />
@@ -285,7 +333,7 @@ export default function InterviewPage() {
                       className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] px-4 py-3 rounded-2xl ${
+                        className={`max-w-[85%] px-4 py-3 rounded-2xl ${
                           message.role === 'user'
                             ? 'bg-blue-500 text-white'
                             : 'bg-white/10 text-white'
@@ -303,7 +351,14 @@ export default function InterviewPage() {
             {/* Controls */}
             <div className="flex flex-col items-center gap-4">
               {status === 'idle' && (
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4 items-center">
+                  <button
+                    onClick={goBack}
+                    className="flex items-center gap-2 px-6 py-3 text-white/60 hover:text-white transition"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Atrás
+                  </button>
                   <button
                     onClick={startInterview}
                     className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 
@@ -315,7 +370,7 @@ export default function InterviewPage() {
                   </button>
                   <button
                     onClick={skipInterview}
-                    className="px-6 py-4 text-white/60 hover:text-white font-medium transition"
+                    className="px-6 py-3 text-white/60 hover:text-white font-medium transition"
                   >
                     Saltar →
                   </button>
@@ -327,12 +382,12 @@ export default function InterviewPage() {
                   {/* Status indicator */}
                   <div className="flex items-center gap-2 text-sm">
                     {status === 'listening' && !isRecording && (
-                      <span className="text-blue-300">Presiona para hablar</span>
+                      <span className="text-blue-300">Toca para hablar</span>
                     )}
                     {status === 'listening' && isRecording && (
                       <span className="text-red-400 flex items-center gap-2">
                         <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        Grabando... (suelta para enviar)
+                        Grabando... (toca para enviar)
                       </span>
                     )}
                     {status === 'processing' && (
@@ -349,19 +404,17 @@ export default function InterviewPage() {
                     )}
                   </div>
 
-                  {/* Mic button */}
+                  {/* Mic button - TAP TO TOGGLE (mobile-friendly) */}
                   <button
-                    onMouseDown={startRecording}
-                    onMouseUp={stopRecording}
-                    onTouchStart={startRecording}
-                    onTouchEnd={stopRecording}
+                    onClick={toggleRecording}
+                    onTouchEnd={toggleRecording}
                     disabled={status === 'processing' || status === 'speaking'}
-                    className={`p-6 rounded-full transition-all ${
+                    className={`p-6 rounded-full transition-all select-none touch-none ${
                       isRecording
-                        ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/50'
+                        ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/50 animate-pulse'
                         : status === 'processing' || status === 'speaking'
                         ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                        : 'bg-blue-500 hover:bg-blue-600 hover:scale-105 shadow-lg shadow-blue-500/30'
+                        : 'bg-blue-500 hover:bg-blue-600 hover:scale-105 shadow-lg shadow-blue-500/30 active:scale-95'
                     }`}
                   >
                     {isRecording ? (
@@ -394,8 +447,8 @@ export default function InterviewPage() {
           </div>
         </div>
 
-        {/* Right panel - Progress */}
-        <div className="w-80 bg-black/20 border-l border-white/10 p-6">
+        {/* Right panel - Progress (hidden on mobile) */}
+        <div className="hidden lg:block w-80 bg-black/20 border-l border-white/10 p-6">
           <h3 className="text-sm font-medium text-blue-200 mb-4 uppercase tracking-wider">
             Progreso de la entrevista
           </h3>
