@@ -1,23 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCalendarIntegrations } from '@/lib/db/queries'
+import { getCalendarIntegrations, getBusinessByUserId } from '@/lib/db/queries'
 import { db } from '@/lib/db'
 import { calendarIntegrations } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { auth } from '@/auth'
+
+export const dynamic = 'force-dynamic'
 
 /**
- * List calendar integrations for a business
- * GET /api/integrations/calendar?businessId=xxx
+ * List calendar integrations for the authenticated user's business
+ * GET /api/integrations/calendar
  * 
  * Returns both database records and live status from Nango
  */
 export async function GET(request: NextRequest) {
-  const businessId = request.nextUrl.searchParams.get('businessId')
-  
-  if (!businessId) {
-    return NextResponse.json({ error: 'businessId required' }, { status: 400 })
-  }
-  
   try {
+    // Get authenticated user
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    // Get user's business
+    const business = await getBusinessByUserId(session.user.id)
+    if (!business) {
+      return NextResponse.json({ error: 'No business found' }, { status: 404 })
+    }
+    
+    const businessId = business.id
     // First, get integrations from our database
     const dbIntegrations = await getCalendarIntegrations(businessId)
     
@@ -83,19 +93,30 @@ export async function GET(request: NextRequest) {
  * Removes the connection from both Nango and our database
  */
 export async function DELETE(request: NextRequest) {
-  const integrationId = request.nextUrl.searchParams.get('integrationId')
-  const connectionId = request.nextUrl.searchParams.get('connectionId')
-  
-  if (!integrationId || !connectionId) {
-    return NextResponse.json(
-      { error: 'integrationId and connectionId required' },
-      { status: 400 }
-    )
-  }
-  
-  const secretKey = process.env.NANGO_SECRET_KEY
-  
   try {
+    // Get authenticated user
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    // Get user's business (to verify ownership)
+    const business = await getBusinessByUserId(session.user.id)
+    if (!business) {
+      return NextResponse.json({ error: 'No business found' }, { status: 404 })
+    }
+    
+    const integrationId = request.nextUrl.searchParams.get('integrationId')
+    const connectionId = request.nextUrl.searchParams.get('connectionId')
+    
+    if (!integrationId || !connectionId) {
+      return NextResponse.json(
+        { error: 'integrationId and connectionId required' },
+        { status: 400 }
+      )
+    }
+    
+    const secretKey = process.env.NANGO_SECRET_KEY
     // Delete from Nango if configured
     if (secretKey) {
       const response = await fetch(

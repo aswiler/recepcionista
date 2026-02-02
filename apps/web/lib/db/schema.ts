@@ -48,6 +48,10 @@ export const businesses = pgTable('businesses', {
   whatsappPhoneNumber: text('whatsapp_phone_number'),      // Display number (+34612...)
   whatsappConnectedAt: timestamp('whatsapp_connected_at'),
   
+  // Human Handoff Configuration
+  handoffPhone: text('handoff_phone'), // Phone number to transfer calls to
+  handoffEmail: text('handoff_email'), // Email for handoff notifications
+  
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -116,6 +120,39 @@ export const messages = pgTable('messages', {
   externalId: text('external_id'), // Meta message ID
   role: text('role').notNull(), // user, assistant
   content: text('content').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+// Human Handoffs - Track when AI escalates to human
+export const handoffs = pgTable('handoffs', {
+  id: text('id').primaryKey(),
+  businessId: text('business_id').notNull().references(() => businesses.id),
+  channel: channelType('channel').notNull(), // voice, whatsapp
+  
+  // Reference to the conversation/call
+  callId: text('call_id').references(() => calls.id),
+  conversationId: text('conversation_id').references(() => conversations.id),
+  
+  // Customer info
+  customerPhone: text('customer_phone').notNull(),
+  customerName: text('customer_name'),
+  
+  // Handoff details
+  reason: text('reason').notNull(), // Why AI escalated
+  summary: text('summary'), // Context summary for human
+  urgency: text('urgency').default('normal'), // low, normal, high, urgent
+  
+  // Status tracking
+  status: text('status').default('pending'), // pending, notified, claimed, resolved
+  notifiedAt: timestamp('notified_at'),
+  claimedAt: timestamp('claimed_at'),
+  claimedBy: text('claimed_by'), // User who took over
+  resolvedAt: timestamp('resolved_at'),
+  
+  // For voice: was the call actually transferred?
+  transferred: boolean('transferred').default(false),
+  transferredTo: text('transferred_to'), // Phone number transferred to
+  
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 

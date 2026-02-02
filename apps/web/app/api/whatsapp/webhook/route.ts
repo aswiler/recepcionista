@@ -135,7 +135,10 @@ export async function POST(request: NextRequest) {
       .reverse()
       .map(m => ({ role: m.role, content: m.content }))
     
-    // Generate AI response with calendar tools if available
+    // Check if voice service is configured (for WhatsApp → Voice calls)
+    const hasVoiceService = !!process.env.VOICE_SERVICE_URL
+    
+    // Generate AI response with calendar, voice call, and handoff tools
     const response = await generateResponse(
       business.id,
       business.name,
@@ -143,6 +146,10 @@ export async function POST(request: NextRequest) {
       'whatsapp',
       {
         enableCalendar: hasCalendar,
+        enableVoiceCall: hasVoiceService,
+        customerPhone,
+        customerName: conversation.customerName || undefined,
+        conversationId: conversation.id,
         conversationHistory,
       }
     )

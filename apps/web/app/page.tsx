@@ -77,7 +77,7 @@ function Navbar() {
 
           <div className="flex items-center gap-4">
             <Link 
-              href="/auth/login"
+              href="/login"
               className={`hidden sm:block font-medium transition ${scrolled ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'}`}
             >
               Iniciar sesión

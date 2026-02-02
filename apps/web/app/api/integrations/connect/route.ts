@@ -1,31 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/auth'
+import { getBusinessByUserId } from '@/lib/db/queries'
+
+export const dynamic = 'force-dynamic'
 
 /**
  * Create a Nango connect session token
  * POST /api/integrations/connect
  * 
  * Returns a session token that the frontend uses to open the OAuth popup
+ * businessId is retrieved from the authenticated session for security
  */
 export async function POST(request: NextRequest) {
-  const { integrationId, businessId } = await request.json()
-  
-  if (!integrationId || !businessId) {
-    return NextResponse.json(
-      { error: 'integrationId and businessId are required' },
-      { status: 400 }
-    )
-  }
-  
-  const secretKey = process.env.NANGO_SECRET_KEY
-  
-  if (!secretKey) {
-    return NextResponse.json(
-      { error: 'Nango not configured. Add NANGO_SECRET_KEY to .env.local' },
-      { status: 500 }
-    )
-  }
-  
   try {
+    // Get authenticated user
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    // Get user's business
+    const business = await getBusinessByUserId(session.user.id)
+    if (!business) {
+      return NextResponse.json({ error: 'No business found. Please complete onboarding first.' }, { status: 404 })
+    }
+    
+    const businessId = business.id
+    const { integrationId } = await request.json()
+    
+    if (!integrationId) {
+      return NextResponse.json(
+        { error: 'integrationId is required' },
+        { status: 400 }
+      )
+    }
+    
+    const secretKey = process.env.NANGO_SECRET_KEY
+    
+    if (!secretKey) {
+      return NextResponse.json(
+        { error: 'Nango not configured. Add NANGO_SECRET_KEY to .env.local' },
+        { status: 500 }
+      )
+    }
+    
     // Create a connect session token using Nango API
     const response = await fetch('https://api.nango.dev/connect/sessions', {
       method: 'POST',
@@ -36,7 +54,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         end_user: {
           id: businessId,
-          display_name: `Business ${businessId}`,
+          display_name: business.name || `Business ${businessId}`,
         },
         allowed_integrations: [integrationId],
       }),
@@ -75,6 +93,7 @@ export async function POST(request: NextRequest) {
       integrationId,
       businessId
     })
+    
   } catch (error) {
     console.error('Error creating Nango session:', error)
     return NextResponse.json(

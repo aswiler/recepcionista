@@ -5,6 +5,8 @@ import { db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 import { getBusinessByUserId } from '@/lib/db/queries'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

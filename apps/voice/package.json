@@ -2,7 +2,7 @@
   "name": "@recepcionista/voice",
   "version": "2.0.0",
   "private": true,
-  "description": "Premium voice AI service with calendar integration",
+  "description": "Premium voice AI service with calendar integration (Telnyx)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "bun --watch src/index.ts",
@@ -12,9 +12,9 @@
     "start:bun": "bun dist/index.js",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "twilio:list": "bun run scripts/configure-twilio.ts list",
-    "twilio:configure": "bun run scripts/configure-twilio.ts configure",
-    "twilio:buy": "bun run scripts/configure-twilio.ts buy"
+    "telnyx:list": "bun run scripts/configure-telnyx.ts list",
+    "telnyx:configure": "bun run scripts/configure-telnyx.ts configure",
+    "telnyx:search": "bun run scripts/configure-telnyx.ts search"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -22,7 +22,7 @@
   "dependencies": {
     "@deepgram/sdk": "^3.0.0",
     "elevenlabs": "^0.10.0",
-    "twilio": "^5.0.0",
+    "telnyx": "^2.0.0",
     "hono": "^4.0.0",
     "@hono/node-server": "^1.8.0",
     "ws": "^8.16.0",

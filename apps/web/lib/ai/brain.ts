@@ -27,6 +27,69 @@ export interface ToolCallResult {
   result: Record<string, unknown>
 }
 
+// Voice call tool for WhatsApp → AI Voice call (AI still handles the call)
+const voiceCallTool: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'request_voice_call',
+    description: `Inicia una llamada de voz donde TÚ (la IA) hablarás con el cliente por teléfono en lugar de por chat. 
+    
+USA ESTA HERRAMIENTA cuando el cliente:
+- Prefiere HABLAR en vez de ESCRIBIR: "llámame", "prefiero hablar por teléfono", "me puedes llamar"
+- Dice que es difícil explicar por texto: "es complicado de explicar", "sería más fácil hablando"
+- Simplemente quiere una llamada sin mencionar humanos
+
+NO uses esta herramienta si el cliente pide específicamente hablar con una PERSONA REAL o HUMANO.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'Motivo de la llamada (ej: "El cliente prefiere hablar por teléfono", "Consulta compleja por texto")',
+        },
+      },
+      required: ['reason'],
+    },
+  },
+}
+
+// Human handoff tool - escalate to a REAL person (not AI)
+const humanHandoffTool: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'request_human_handoff',
+    description: `Transfiere la conversación a un HUMANO REAL (no IA). El cliente hablará con un empleado del negocio.
+
+USA ESTA HERRAMIENTA cuando el cliente:
+- Pide explícitamente una PERSONA REAL: "quiero hablar con una persona real", "necesito un humano", "no quiero hablar con un robot/IA"
+- Está muy frustrado o enfadado contigo
+- Tiene un problema que NO puedes resolver (fuera de tu conocimiento)
+- Es una emergencia o situación muy delicada
+- Necesita tomar decisiones importantes que requieren autorización humana
+
+NO uses esta herramienta si el cliente solo quiere hablar por teléfono pero no menciona querer un humano.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'Motivo de la transferencia (ej: "Cliente solicita persona real", "Problema fuera de mi alcance")',
+        },
+        summary: {
+          type: 'string',
+          description: 'Resumen breve de la conversación y lo que el cliente necesita',
+        },
+        urgency: {
+          type: 'string',
+          enum: ['low', 'normal', 'high', 'urgent'],
+          description: 'Nivel de urgencia: low (puede esperar), normal (respuesta en horas), high (respuesta pronto), urgent (inmediato)',
+        },
+      },
+      required: ['reason', 'summary'],
+    },
+  },
+}
+
 // Calendar tool definitions for OpenAI function calling
 const calendarTools: OpenAI.Chat.ChatCompletionTool[] = [
   {
@@ -102,19 +165,31 @@ const calendarTools: OpenAI.Chat.ChatCompletionTool[] = [
 /**
  * Generate a response for a customer query
  * @param options.enableCalendar - Whether to enable calendar tools (requires calendar integration)
+ * @param options.enableVoiceCall - Whether to enable voice call tool (WhatsApp only)
+ * @param options.customerPhone - Customer's phone number (for outbound calls/handoffs)
+ * @param options.conversationId - WhatsApp conversation ID (for handoffs)
+ * @param options.callId - Voice call ID (for handoffs)
  */
 export async function generateResponse(
   businessId: string,
   businessName: string,
   userMessage: string,
   channel: 'voice' | 'whatsapp' = 'voice',
-  options?: { enableCalendar?: boolean; conversationHistory?: Array<{role: string; content: string}> }
+  options?: { 
+    enableCalendar?: boolean
+    enableVoiceCall?: boolean
+    customerPhone?: string
+    customerName?: string
+    conversationId?: string
+    callId?: string
+    conversationHistory?: Array<{role: string; content: string}>
+  }
 ): Promise<AIResponse> {
   // 1. Get relevant context from Pinecone
   const context = await getBusinessContext(businessId, userMessage)
   
   // 2. Build system prompt
-  const systemPrompt = buildSystemPrompt(businessName, context, channel, options?.enableCalendar)
+  const systemPrompt = buildSystemPrompt(businessName, context, channel, options?.enableCalendar, options?.enableVoiceCall)
   
   // 3. Build messages array with optional conversation history
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -132,13 +207,24 @@ export async function generateResponse(
   
   messages.push({ role: 'user', content: userMessage })
   
-  // 4. Generate response with OpenAI (with tools if calendar enabled)
+  // 4. Build tools array based on options
+  const tools: OpenAI.Chat.ChatCompletionTool[] = []
+  if (options?.enableCalendar) {
+    tools.push(...calendarTools)
+  }
+  if (options?.enableVoiceCall && channel === 'whatsapp') {
+    tools.push(voiceCallTool)
+  }
+  // Always enable human handoff
+  tools.push(humanHandoffTool)
+  
+  // 5. Generate response with OpenAI (with tools if any enabled)
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages,
     max_tokens: channel === 'voice' ? 150 : 300,
     temperature: 0.7,
-    ...(options?.enableCalendar ? { tools: calendarTools, tool_choice: 'auto' } : {}),
+    ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
   })
   
   const message = response.choices[0].message
@@ -151,7 +237,12 @@ export async function generateResponse(
       const toolArgs = JSON.parse(toolCall.function.arguments)
       
       // Execute the tool
-      const toolResult = await executeCalendarTool(toolName, toolArgs, businessId)
+      const toolResult = await executeTool(toolName, toolArgs, businessId, channel, {
+        customerPhone: options?.customerPhone,
+        customerName: options?.customerName,
+        conversationId: options?.conversationId,
+        callId: options?.callId,
+      })
       
       toolCalls.push({
         tool: toolName,
@@ -202,12 +293,19 @@ export async function generateResponse(
 }
 
 /**
- * Execute a calendar tool
+ * Execute a tool (calendar, voice call, or human handoff)
  */
-async function executeCalendarTool(
+async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
-  businessId: string
+  businessId: string,
+  channel: 'voice' | 'whatsapp',
+  context: {
+    customerPhone?: string
+    customerName?: string
+    conversationId?: string
+    callId?: string
+  }
 ): Promise<Record<string, unknown>> {
   const baseUrl = process.env.NEXTAUTH_URL || process.env.BASE_URL || 'http://localhost:3000'
   
@@ -251,6 +349,77 @@ async function executeCalendarTool(
           }),
         })
         return await response.json()
+      }
+      
+      case 'request_voice_call': {
+        if (!context.customerPhone) {
+          return { 
+            success: false, 
+            message: 'No se pudo obtener el número del cliente' 
+          }
+        }
+        
+        // Trigger outbound call via voice service
+        const voiceServiceUrl = process.env.VOICE_SERVICE_URL || 'http://localhost:3001'
+        const apiKey = process.env.VOICE_SERVICE_API_KEY
+        
+        const response = await fetch(`${voiceServiceUrl}/api/outbound-call`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey || '',
+          },
+          body: JSON.stringify({
+            businessId,
+            customerPhone: context.customerPhone,
+            reason: args.reason,
+          }),
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to initiate outbound call:', await response.text())
+          return { 
+            success: false, 
+            message: 'No se pudo iniciar la llamada. Inténtalo de nuevo.' 
+          }
+        }
+        
+        return await response.json()
+      }
+      
+      case 'request_human_handoff': {
+        // Create handoff request via API
+        const response = await fetch(`${baseUrl}/api/handoff`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId,
+            channel,
+            customerPhone: context.customerPhone,
+            customerName: context.customerName,
+            conversationId: context.conversationId,
+            callId: context.callId,
+            reason: args.reason,
+            summary: args.summary,
+            urgency: args.urgency || 'normal',
+          }),
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to create handoff:', await response.text())
+          return { 
+            success: false, 
+            message: 'No se pudo procesar la transferencia. Inténtalo de nuevo.' 
+          }
+        }
+        
+        const result = await response.json()
+        return {
+          success: true,
+          message: result.customerMessage || 'Te pongo en contacto con un miembro de nuestro equipo.',
+          handoffId: result.handoffId,
+          transferred: result.transferred, // For voice: was call actually transferred?
+        }
       }
       
       default:
@@ -347,7 +516,8 @@ function buildSystemPrompt(
   businessName: string,
   context: string,
   channel: 'voice' | 'whatsapp',
-  enableCalendar?: boolean
+  enableCalendar?: boolean,
+  enableVoiceCall?: boolean
 ): string {
   const channelInstructions = channel === 'voice'
     ? 'Mantén las respuestas muy breves (1-2 oraciones). Habla de forma natural y conversacional.'
@@ -363,6 +533,22 @@ GESTIÓN DE CITAS:
 - Siempre confirma los detalles de la cita al cliente después de reservar`
     : ''
   
+  const voiceCallInstructions = enableVoiceCall && channel === 'whatsapp'
+    ? `
+LLAMADA DE VOZ (TÚ sigues atendiendo):
+- Usa request_voice_call cuando el cliente prefiera HABLAR en vez de ESCRIBIR
+- Frases clave: "llámame", "prefiero hablar por teléfono", "es difícil de explicar por texto"
+- IMPORTANTE: Si solo dice "quiero hablar" sin mencionar "persona real" o "humano", usa esta herramienta
+- Tú (la IA) les llamarás y seguirás atendiéndoles por voz`
+    : ''
+  
+  const handoffInstructions = `
+TRANSFERENCIA A HUMANO REAL (tú dejas de atender):
+- Usa request_human_handoff SOLO cuando el cliente pida explícitamente una PERSONA REAL
+- Frases clave: "quiero hablar con una persona REAL", "necesito un HUMANO", "no quiero hablar con un robot/IA", "pásamne con alguien de verdad"
+- También úsalo si: no puedes ayudar, el cliente está muy frustrado, o es una emergencia
+- IMPORTANTE: Si el cliente solo quiere hablar por teléfono pero NO menciona "humano" o "persona real", usa request_voice_call en su lugar`
+  
   return `Eres una recepcionista AI profesional para ${businessName}.
 
 ${context ? `INFORMACIÓN DEL NEGOCIO:\n${context}\n` : ''}
@@ -370,10 +556,9 @@ ${context ? `INFORMACIÓN DEL NEGOCIO:\n${context}\n` : ''}
 INSTRUCCIONES:
 - Responde en español de manera natural y profesional
 - ${channelInstructions}
-- Si no tienes información para responder, ofrece transferir a un humano
 - Usa un tono cálido y amigable
 - Nunca inventes información que no esté en el contexto
-${calendarInstructions}`
+${calendarInstructions}${voiceCallInstructions}${handoffInstructions}`
 }
 
 function checkShouldTransfer(response: string, context: string): boolean {

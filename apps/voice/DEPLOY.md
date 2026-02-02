@@ -1,12 +1,13 @@
-# Voice Service Deployment Guide
+# Voice Service Deployment Guide (Telnyx)
 
-This guide covers deploying the premium voice pipeline to production.
+This guide covers deploying the premium voice pipeline with Telnyx to production.
 
 ## Prerequisites
 
-1. **Twilio Account** with:
-   - Phone number(s) provisioned
-   - Account SID and Auth Token
+1. **Telnyx Account** with:
+   - API Key (from portal.telnyx.com)
+   - Programmable Voice application created
+   - Phone number(s) purchased
 
 2. **API Keys** for:
    - Deepgram (STT)
@@ -14,163 +15,101 @@ This guide covers deploying the premium voice pipeline to production.
    - ElevenLabs (TTS)
    - Pinecone (RAG)
 
-3. **Railway or Render account** (or other hosting)
+3. **Railway account** (or other hosting)
 
 ---
 
-## Option 1: Deploy to Railway
+## Telnyx Setup
+
+### Step 1: Create a Telnyx Account
+
+1. Go to https://telnyx.com and sign up
+2. Add credit to your account ($5+ recommended for testing)
+
+### Step 2: Get Your API Key
+
+1. Go to https://portal.telnyx.com
+2. Navigate to **Auth** → **API Keys**
+3. Click **Create API Key**
+4. Copy the key (starts with `KEY...`)
+
+### Step 3: Create a Voice Application
+
+1. In Telnyx portal, go to **Voice** → **Programmable Voice**
+2. Click **Create Voice API Application**
+3. Fill in:
+   - **Application Name:** `Recepcionista`
+   - **Webhook URL:** `https://your-voice-service.up.railway.app/webhook/telnyx`
+   - **Webhook API Version:** `API v2`
+4. Save and note the **Connection ID**
+
+### Step 4: Purchase a Phone Number
+
+1. Go to **Numbers** → **Search & Buy**
+2. Search for numbers in Spain (ES) or your target country
+3. Purchase a number
+4. Link it to your Voice application (set Connection ID)
+
+---
+
+## Deploy to Railway
 
 ### Step 1: Create Railway Project
 
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login
-railway login
-
-# Create project in the voice directory
-cd apps/voice
-railway init
-```
+1. Go to https://railway.app/dashboard
+2. Click "New Project" → "Deploy from GitHub repo"
+3. Select your repository
+4. Set **Root Directory** to `apps/voice`
 
 ### Step 2: Configure Environment Variables
 
-In Railway dashboard, add these variables:
+In Railway dashboard, go to **Variables** tab and add:
 
 ```
 NODE_ENV=production
 PORT=3001
-BASE_URL=https://your-app.railway.app
-
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxxxx
+TELNYX_API_KEY=KEYxxxxxxxxxxxxxxxxxx
 DEEPGRAM_API_KEY=xxxxxxxxxx
 OPENAI_API_KEY=sk-proj-xxxxxxxxxx
 ELEVENLABS_API_KEY=sk_xxxxxxxxxx
 PINECONE_API_KEY=pcsk_xxxxxxxxxx
 WEB_APP_URL=https://your-web-app.vercel.app
+DEFAULT_BUSINESS_NAME=Mi Negocio
 ```
 
-### Step 3: Deploy
+### Step 3: Configure Build
 
-```bash
-railway up
+In **Settings** tab:
+- **Root Directory:** `apps/voice`
+- **Custom Start Command:** `node dist/index.js`
+
+### Step 4: Deploy & Get URL
+
+1. Railway will auto-deploy
+2. Go to **Settings** → **Networking** → **Generate Domain**
+3. Copy your URL (e.g., `https://voice-xyz.up.railway.app`)
+
+### Step 5: Add BASE_URL
+
+Add to Railway variables:
+```
+BASE_URL=https://voice-xyz.up.railway.app
 ```
 
-### Step 4: Get Your URL
+### Step 6: Update Telnyx Webhook
 
-```bash
-railway domain
-```
+1. Go back to Telnyx portal → Voice → Your Application
+2. Update **Webhook URL** to: `https://voice-xyz.up.railway.app/webhook/telnyx`
+3. Save
 
 ---
 
-## Option 2: Deploy to Render
-
-### Step 1: Connect Repository
-
-1. Go to https://dashboard.render.com
-2. Click "New" → "Web Service"
-3. Connect your GitHub repository
-4. Set root directory to `apps/voice`
-
-### Step 2: Configure Build
-
-- **Build Command:** `npm install && npm run build`
-- **Start Command:** `npm start`
-- **Health Check Path:** `/health`
-
-### Step 3: Add Environment Variables
-
-Add all variables from `.env.example`
-
-### Step 4: Deploy
-
-Click "Create Web Service"
-
----
-
-## Option 3: Deploy with Docker
-
-### Step 1: Build Image
-
-```bash
-cd apps/voice
-docker build -t recepcionista-voice .
-```
-
-### Step 2: Run Container
-
-```bash
-docker run -d \
-  -p 3001:3001 \
-  -e NODE_ENV=production \
-  -e BASE_URL=https://your-domain.com \
-  -e TWILIO_ACCOUNT_SID=ACxxxxxxxx \
-  -e TWILIO_AUTH_TOKEN=xxxxxxxx \
-  -e DEEPGRAM_API_KEY=xxxxxxxx \
-  -e OPENAI_API_KEY=sk-proj-xxxxxxxx \
-  -e ELEVENLABS_API_KEY=sk_xxxxxxxx \
-  -e PINECONE_API_KEY=pcsk_xxxxxxxx \
-  -e WEB_APP_URL=https://your-web-app.com \
-  recepcionista-voice
-```
-
----
-
-## Configure Twilio Phone Numbers
-
-After deploying, configure your Twilio phone numbers to use the voice service.
-
-### Step 1: Get Your Webhook URL
-
-Your webhook URL will be:
-```
-https://your-voice-service.com/webhook/twilio/voice
-```
-
-### Step 2: Configure in Twilio Console
-
-1. Go to https://console.twilio.com/phone-numbers
-2. Click on your phone number
-3. Under "Voice Configuration":
-   - **Configure with:** Webhook
-   - **A call comes in:** `https://your-voice-service.com/webhook/twilio/voice`
-   - **HTTP Method:** POST
-   - **Call status changes:** `https://your-voice-service.com/webhook/twilio/status` (optional)
-
-### Step 3: Test the Configuration
-
-Call your Twilio number! You should hear the AI receptionist answer.
-
----
-
-## Twilio Configuration via API
-
-You can also configure phone numbers programmatically:
-
-```javascript
-const twilio = require('twilio');
-const client = twilio(accountSid, authToken);
-
-// Update phone number webhook
-await client.incomingPhoneNumbers('PNxxxxxxxxxx').update({
-  voiceUrl: 'https://your-voice-service.com/webhook/twilio/voice',
-  voiceMethod: 'POST',
-  statusCallback: 'https://your-voice-service.com/webhook/twilio/status',
-  statusCallbackMethod: 'POST',
-});
-```
-
----
-
-## Verify Deployment
+## Test Your Setup
 
 ### Health Check
 
 ```bash
-curl https://your-voice-service.com/health
+curl https://your-voice-service.up.railway.app/health
 ```
 
 Expected response:
@@ -179,67 +118,16 @@ Expected response:
   "status": "ok",
   "service": "voice",
   "version": "2.0.0",
+  "provider": "telnyx",
   "pipeline": "premium"
 }
 ```
 
 ### Test Call
 
-1. Call your Twilio phone number
+1. Call your Telnyx phone number
 2. You should hear: "¡Hola! Gracias por llamar a [Business Name]..."
 3. Try asking questions or booking appointments
-
----
-
-## Monitoring
-
-### Logs
-
-- **Railway:** `railway logs`
-- **Render:** Dashboard → Service → Logs
-- **Docker:** `docker logs <container_id>`
-
-### Active Calls
-
-The service logs active call count when connections close:
-```
-📊 Active calls: 2
-```
-
-### Latency Tracking
-
-The service logs LLM latency for each request:
-```
-🧠 OpenAI gpt-4o latency: 523ms
-```
-
----
-
-## Troubleshooting
-
-### "No audio" on calls
-
-1. Check ElevenLabs API key is valid
-2. Verify WebSocket connection is established (check logs)
-3. Ensure BASE_URL is correct (must match Twilio webhook URL)
-
-### "AI not responding"
-
-1. Check OpenAI API key
-2. Verify Pinecone connection for RAG context
-3. Check for errors in logs
-
-### "Calendar not working"
-
-1. Ensure WEB_APP_URL is set correctly
-2. Verify the business has a calendar connection in Nango
-3. Check calendar API endpoints are accessible
-
-### WebSocket connection issues
-
-1. Ensure your hosting supports WebSockets
-2. Check that BASE_URL uses the correct protocol (wss:// for https://)
-3. Railway/Render both support WebSockets by default
 
 ---
 
@@ -253,15 +141,17 @@ The service logs LLM latency for each request:
 │  Incoming Call                                              │
 │       │                                                     │
 │       ▼                                                     │
-│  /webhook/twilio/voice                                      │
+│  Telnyx Webhook (call.initiated)                            │
 │       │                                                     │
-│       ▼ (TwiML: connect to stream)                         │
-│                                                             │
-│  WebSocket /stream/{callSid}                                │
+│       ▼                                                     │
+│  Answer Call → Start Audio Streaming                        │
+│       │                                                     │
+│       ▼                                                     │
+│  WebSocket /stream/{callControlId}                          │
 │       │                                                     │
 │       ▼                                                     │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │            WowVoicePipeline                          │   │
+│  │            TelnyxVoicePipeline                       │   │
 │  │                                                      │   │
 │  │  Audio In ──► Deepgram STT ──► Transcript           │   │
 │  │                                    │                 │   │
@@ -282,16 +172,88 @@ The service logs LLM latency for each request:
 
 ---
 
+## Telnyx Webhook Events
+
+The service handles these Telnyx events:
+
+| Event | Description |
+|-------|-------------|
+| `call.initiated` | Incoming call - answer and prepare |
+| `call.answered` | Call connected - start audio streaming |
+| `call.hangup` | Call ended - clean up |
+| `streaming.started` | Audio stream active |
+| `streaming.stopped` | Audio stream ended |
+
+---
+
+## Monitoring
+
+### View Active Calls
+
+```bash
+curl https://your-voice-service.up.railway.app/api/calls
+```
+
+### Logs
+
+- **Railway:** `railway logs` or Dashboard → Logs
+- Watch for:
+  - `📞 Telnyx event: call.initiated`
+  - `✅ Call answered`
+  - `🎙️ Audio streaming started`
+  - `👤 Customer: [transcript]`
+  - `🤖 AI: [response]`
+
+---
+
+## Troubleshooting
+
+### "No audio" on calls
+
+1. Check ElevenLabs API key is valid
+2. Verify WebSocket connection established (check logs)
+3. Ensure BASE_URL is correct and uses HTTPS
+
+### "Webhook not receiving events"
+
+1. Verify Telnyx webhook URL matches your Railway URL
+2. Check webhook is set to **API v2**
+3. Ensure phone number is linked to the correct connection
+
+### "AI not responding"
+
+1. Check OpenAI API key
+2. Verify Pinecone connection for RAG context
+3. Check logs for errors
+
+---
+
 ## Cost Estimates
 
 Per minute of voice conversation:
 
 | Service     | Cost/min | Notes                    |
 |-------------|----------|--------------------------|
-| Twilio      | ~$0.02   | Inbound + media streams  |
+| Telnyx      | ~$0.01   | Inbound + streaming      |
 | Deepgram    | ~$0.01   | Nova-2 STT               |
 | OpenAI      | ~$0.02   | GPT-4o (varies by usage) |
 | ElevenLabs  | ~$0.02   | Multilingual v2          |
-| **Total**   | ~$0.07   | Per minute               |
+| **Total**   | ~$0.06   | Per minute               |
 
-For 1,000 calls averaging 3 minutes: ~$210/month
+For 1,000 calls averaging 3 minutes: ~$180/month
+
+---
+
+## Client Onboarding (Call Forwarding)
+
+Since clients typically have existing phone numbers:
+
+1. You provision a Telnyx number for them
+2. They set up **call forwarding** from their existing number:
+   ```
+   *21*+34XXXXXXXXX#   (forward all calls)
+   *61*+34XXXXXXXXX#   (forward if no answer)
+   ```
+3. Calls flow: Customer → Client's number → Telnyx → AI
+
+This way clients keep their existing numbers and can disable forwarding anytime.

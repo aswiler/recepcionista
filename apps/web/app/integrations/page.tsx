@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { Calendar, Clock, CheckCircle2, ExternalLink, Trash2, Loader2 } from 'lucide-react'
+import { Calendar, Clock, CheckCircle2, ExternalLink, Trash2, Loader2, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { useBusinessData } from '@/lib/hooks/use-dashboard-data'
 
 interface Connection {
   integration_id: string
@@ -20,24 +21,22 @@ function IntegrationsContent() {
   const [error, setError] = useState<string | null>(null)
   const [nangoConfigured, setNangoConfigured] = useState(true)
   
-  // For demo purposes, use a fixed business ID (in production, get from auth)
-  const businessId = 'demo-business-001'
-  
-  // Check for success callback
-  useEffect(() => {
-    if (searchParams.get('success') === 'true') {
-      // Refresh connections after successful OAuth
-      fetchConnections()
-    }
-  }, [searchParams])
+  // Get real business ID from authenticated session
+  const { data: businessData, loading: businessLoading, error: businessError } = useBusinessData()
+  const businessId = businessData?.business?.id
   
   // Fetch existing connections
   const fetchConnections = async () => {
+    if (!businessId) return
+    
     try {
-      const res = await fetch(`/api/integrations/calendar?businessId=${businessId}`)
+      setLoading(true)
+      const res = await fetch('/api/integrations/calendar')
       if (res.ok) {
         const data = await res.json()
         setConnections(data.connections || [])
+      } else if (res.status === 401) {
+        setError('Debes iniciar sesión para ver las integraciones')
       }
     } catch (err) {
       console.error('Error fetching connections:', err)
@@ -46,21 +45,37 @@ function IntegrationsContent() {
     }
   }
   
+  // Fetch connections when businessId is available
   useEffect(() => {
-    fetchConnections()
-  }, [])
+    if (businessId) {
+      fetchConnections()
+    }
+  }, [businessId])
+  
+  // Check for success callback
+  useEffect(() => {
+    if (searchParams.get('success') === 'true' && businessId) {
+      // Refresh connections after successful OAuth
+      fetchConnections()
+    }
+  }, [searchParams, businessId])
   
   // Connect to a calendar provider
   const handleConnect = async (integrationId: string) => {
+    if (!businessId) {
+      setError('No se encontró tu negocio. Por favor inicia sesión.')
+      return
+    }
+    
     setConnecting(integrationId)
     setError(null)
     
     try {
-      // Create session token via backend
+      // Create session token via backend (businessId comes from session)
       const res = await fetch('/api/integrations/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integrationId, businessId })
+        body: JSON.stringify({ integrationId })
       })
       const data = await res.json()
       
@@ -144,14 +159,53 @@ function IntegrationsContent() {
     return connections.find(c => c.integration_id === integrationId)
   }
 
+  // Show loading while fetching business data
+  if (businessLoading) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-4" />
+          <p className="text-blue-200">Cargando...</p>
+        </div>
+      </main>
+    )
+  }
+
+  // Show message if no business found (user needs to create one or log in)
+  if (!businessId && !businessLoading) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
+        <div className="relative max-w-4xl mx-auto px-4 py-12">
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm mb-6 inline-block">
+            ← Volver al inicio
+          </Link>
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6 text-center">
+            <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">Inicia sesión para continuar</h2>
+            <p className="text-yellow-200/80 mb-4">
+              Necesitas iniciar sesión y tener un negocio configurado para conectar integraciones.
+            </p>
+            <Link 
+              href="/login"
+              className="inline-block px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+            >
+              Iniciar sesión
+            </Link>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
 
       <div className="relative max-w-4xl mx-auto px-4 py-12">
         {/* Back link */}
-        <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm mb-6 inline-block">
-          ← Volver al inicio
+        <Link href="/dashboard" className="text-blue-400 hover:text-blue-300 text-sm mb-6 inline-block">
+          ← Volver al dashboard
         </Link>
 
         {/* Header */}
@@ -160,6 +214,11 @@ function IntegrationsContent() {
           <p className="text-blue-200">
             Conecta tus herramientas para que tu recepcionista AI pueda gestionar citas automáticamente
           </p>
+          {businessData?.business?.name && (
+            <p className="text-sm text-slate-400 mt-1">
+              Negocio: {businessData.business.name}
+            </p>
+          )}
         </div>
 
         {/* Error message */}
