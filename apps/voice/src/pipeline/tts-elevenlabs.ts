@@ -1,32 +1,25 @@
 /**
  * Text-to-Speech using ElevenLabs
  * 
- * THE WOW FACTOR - Best quality voices available
+ * THE WOW FACTOR - Best quality multilingual voices
  * 
- * Spanish voices recommended:
- * - "Lucia" (Spain female) - Professional, warm
- * - "Diego" (Spain male) - Confident, clear
- * - "Sofia" (LatAm female) - Friendly, approachable
- * - "Mateo" (Mexico male) - Natural, conversational
+ * These voices automatically adapt to ANY language:
+ * - Sara (female) - Calm, peaceful
+ * - Pablo (male) - Professional, clear
+ * 
+ * The caller speaks in any language → GPT responds in that language →
+ * ElevenLabs speaks that language automatically!
  */
 
 import { ElevenLabsClient } from 'elevenlabs'
 
-// Spanish voice IDs from ElevenLabs
-export const SPANISH_VOICES = {
-  // Spain Spanish
-  'lucia-spain': '9BWtsMINqrJLrRacOk9x',      // Professional female
-  'diego-spain': 'CYw3kZ02Hs0563khs1Fj',      // Professional male
-  
-  // Latin American Spanish
-  'sofia-latam': 'EXAVITQu4vr4xnSDxMaL',      // Friendly female
-  'mateo-mexico': 'IKne3meq5aSn9XLyUdCD',     // Natural male
-  
-  // Multilingual (switches automatically)
-  'aria-multilingual': '9BWtsMINqrJLrRacOk9x',
+// Multilingual voice IDs - these work with ANY supported language
+export const VOICES = {
+  'sara': 'BIvP0GN1cAtSRTxNHnWS',    // Female - Calm, peaceful (multilingual)
+  'pablo': 'pb3lVZVjdFWbkhPKlelB',   // Male - Professional, clear (multilingual)
 } as const
 
-export type VoiceId = keyof typeof SPANISH_VOICES
+export type VoiceId = keyof typeof VOICES
 
 interface TTSConfig {
   voiceId?: VoiceId
@@ -47,10 +40,10 @@ export class ElevenLabsTTS {
       apiKey: process.env.ELEVENLABS_API_KEY!,
     })
     
-    this.voiceId = SPANISH_VOICES[config.voiceId || 'lucia-spain']
-    this.stability = config.stability ?? 0.5        // Balanced
-    this.similarityBoost = config.similarityBoost ?? 0.75  // Consistent
-    this.style = config.style ?? 0.3                // Some expression
+    this.voiceId = VOICES[config.voiceId || 'sara']
+    this.stability = config.stability ?? 0.35       // Lower = more expressive/natural
+    this.similarityBoost = config.similarityBoost ?? 0.8   // High similarity to original
+    this.style = config.style ?? 0.4                // More emotional expressiveness
   }
 
   /**
@@ -117,6 +110,14 @@ export class ElevenLabsTTS {
    * Change voice mid-conversation
    */
   setVoice(voiceId: VoiceId) {
-    this.voiceId = SPANISH_VOICES[voiceId]
+    this.voiceId = VOICES[voiceId]
+  }
+  
+  /**
+   * Set voice by raw ElevenLabs voice ID
+   * (for custom voices from business settings)
+   */
+  setVoiceById(elevenLabsVoiceId: string) {
+    this.voiceId = elevenLabsVoiceId
   }
 }
