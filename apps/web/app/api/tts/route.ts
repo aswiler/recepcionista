@@ -11,17 +11,15 @@ const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
  * Text-to-Speech using ElevenLabs
  * Converts AI text responses to natural speech
  * 
- * Supports multiple languages:
- * - es-ES: Spanish (Castilian/Spain)
- * - ca: Catalan
+ * Uses eleven_multilingual_v2 which auto-detects language from text
+ * Supports: Spanish, English, French, German, Italian, Portuguese, Polish, and more
  * 
  * @param text - The text to convert to speech
- * @param voiceId - Optional ElevenLabs voice ID (defaults to Sarah)
- * @param language - Optional language code (defaults to es-ES for Castilian Spanish)
+ * @param voiceId - Optional ElevenLabs voice ID
  */
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId, language } = await request.json()
+    const { text, voiceId } = await request.json()
 
     if (!text) {
       return NextResponse.json({ error: 'No text provided' }, { status: 400 })
@@ -35,17 +33,8 @@ export async function POST(request: NextRequest) {
     // Use provided voice ID or default
     const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
     
-    // Map language codes to ElevenLabs language codes (ISO 639-3 for v3)
-    // Catalan requires eleven_v3 model (not supported in v2)
-    // Spanish works with eleven_multilingual_v2
-    const languageMap: Record<string, { code: string; model: string }> = {
-      'es-ES': { code: 'spa', model: 'eleven_multilingual_v2' },  // Spanish (Castilian)
-      'es': { code: 'spa', model: 'eleven_multilingual_v2' },     // Spanish (generic)
-      'ca': { code: 'cat', model: 'eleven_v3' },                  // Catalan (v3 only)
-    }
-    
-    const langConfig = languageMap[language || 'es-ES'] || { code: 'spa', model: 'eleven_multilingual_v2' }
-
+    // eleven_multilingual_v2 auto-detects language from text - no language_code needed
+    // The model supports: Spanish, English, French, German, Italian, Portuguese, Polish, etc.
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
       method: 'POST',
       headers: {
@@ -55,8 +44,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         text,
-        model_id: langConfig.model,
-        language_code: langConfig.code,
+        model_id: 'eleven_multilingual_v2',
         voice_settings: {
           stability: 0.35,           // Lower = more expressive, natural variation
           similarity_boost: 0.8,     // High similarity to original voice
