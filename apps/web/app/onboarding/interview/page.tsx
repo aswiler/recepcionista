@@ -279,18 +279,21 @@ export default function InterviewPage() {
       audioChunksRef.current = []
 
       mediaRecorder.ondataavailable = (event) => {
+        console.log('🎤 Audio chunk received:', event.data.size, 'bytes')
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data)
         }
       }
 
       mediaRecorder.onstop = async () => {
+        console.log('🛑 Recording stopped, chunks:', audioChunksRef.current.length)
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         stream.getTracks().forEach(track => track.stop())
         await processAudio(audioBlob)
       }
 
-      mediaRecorder.start()
+      // Request data every 250ms to ensure we capture chunks
+      mediaRecorder.start(250)
       setIsRecording(true)
       setStatus('listening')
     } catch (error) {
@@ -325,12 +328,26 @@ export default function InterviewPage() {
   const processAudio = useCallback(async (audioBlob: Blob) => {
     setStatus('processing')
     
+    console.log('🎙️ Audio blob size:', audioBlob.size, 'bytes, type:', audioBlob.type)
+    
+    // Check if we have any audio data
+    if (audioBlob.size < 1000) {
+      console.warn('⚠️ Audio blob too small, likely no audio captured')
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        text: 'No se grabó audio. Asegúrate de que el micrófono esté activo y habla después de tocar el botón.' 
+      }])
+      setStatus('listening')
+      return
+    }
+    
     try {
       // Convert blob to base64
       const reader = new FileReader()
       const base64Audio = await new Promise<string>((resolve) => {
         reader.onloadend = () => {
           const base64 = (reader.result as string).split(',')[1]
+          console.log('📦 Base64 audio length:', base64.length, 'chars')
           resolve(base64)
         }
         reader.readAsDataURL(audioBlob)
