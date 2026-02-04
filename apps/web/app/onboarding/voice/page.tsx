@@ -68,6 +68,8 @@ export default function OnboardingVoiceSelection() {
     setLoadingVoice(voiceKey)
     
     try {
+      console.log('🎤 Requesting TTS for voice:', voice.id, voice.name)
+      
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -78,28 +80,44 @@ export default function OnboardingVoiceSelection() {
         }),
       })
 
-      if (!response.ok) throw new Error('TTS failed')
+      console.log('📡 TTS response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ TTS error response:', errorText)
+        throw new Error(`TTS failed: ${response.status}`)
+      }
 
       const audioBlob = await response.blob()
+      console.log('🔊 Audio blob size:', audioBlob.size, 'bytes')
+      
+      if (audioBlob.size === 0) {
+        throw new Error('Empty audio received')
+      }
+      
       const audioUrl = URL.createObjectURL(audioBlob)
       
       const audio = new Audio(audioUrl)
       audioRef.current = audio
       
       audio.onended = () => {
+        console.log('✅ Audio playback ended')
         setPlayingVoice(null)
         URL.revokeObjectURL(audioUrl)
       }
       
-      audio.onerror = () => {
+      audio.onerror = (e) => {
+        console.error('❌ Audio playback error:', e)
         setPlayingVoice(null)
         URL.revokeObjectURL(audioUrl)
       }
 
+      console.log('▶️ Starting audio playback...')
       await audio.play()
       setPlayingVoice(voiceKey)
     } catch (error) {
-      console.error('Error playing voice sample:', error)
+      console.error('❌ Error playing voice sample:', error)
+      alert('Error al reproducir la voz. Revisa la consola para más detalles.')
     } finally {
       setLoadingVoice(null)
     }
