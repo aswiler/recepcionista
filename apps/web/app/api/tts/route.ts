@@ -67,8 +67,14 @@ export async function POST(request: NextRequest) {
     })
 
     if (!response.ok) {
-      console.error('ElevenLabs error:', await response.text())
-      return NextResponse.json({ error: 'TTS failed' }, { status: 500 })
+      const errorText = await response.text()
+      console.error('ElevenLabs error:', response.status, errorText)
+      return NextResponse.json({ 
+        error: 'TTS failed', 
+        details: errorText,
+        voiceId: selectedVoiceId,
+        status: response.status 
+      }, { status: 500 })
     }
 
     const audioBuffer = await response.arrayBuffer()
