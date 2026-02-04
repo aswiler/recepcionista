@@ -4,45 +4,27 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Mic, ArrowRight, ArrowLeft, Loader2, Play, Pause, Volume2 } from 'lucide-react'
 
-// Voice options for Spanish (Castilian)
-// Voice IDs from ElevenLabs Voice Library - replace with your selected voices
-// TODO: Add more languages when suitable voices are found
+// Voice options - ElevenLabs multilingual voices
+// These voices support multiple languages (Spanish, English, etc.)
+// The actual language is determined by the business's language setting
 const VOICES = [
   {
-    id: 'EXAVITQu4vr4xnSDxMaL', // Sarah - multilingual
+    id: 'BIvP0GN1cAtSRTxNHnWS',
     name: 'Sara',
-    description: 'Profesional y equilibrada',
-    gender: 'female',
-    avatar: '👩‍💼',
-    sample: 'Hola, soy tu recepcionista virtual. ¿En qué puedo ayudarte hoy?',
-    language: 'es-ES',
-  },
-  {
-    id: 'pFZP5JQG7iQjIQuC4Bku', // Lily - multilingual
-    name: 'María',
-    description: 'Cálida y cercana',
+    description: 'Calma y paz',
     gender: 'female',
     avatar: '👩',
-    sample: 'Bienvenido, es un placer atenderte. ¿Qué necesitas?',
-    language: 'es-ES',
+    sample: 'Hola, soy tu recepcionista virtual. ¿En qué puedo ayudarte hoy?',
+    language: 'es-ES', // Default for sample, actual language set per business
   },
   {
-    id: 'TX3LPaxmHKxFdv7VOQHJ', // Liam - multilingual
+    id: 'pb3lVZVjdFWbkhPKlelB',
     name: 'Pablo',
-    description: 'Profesional y confiable',
+    description: 'Profesional y claro',
     gender: 'male',
     avatar: '👨‍💼',
     sample: 'Buenos días, gracias por llamar. ¿Cómo puedo asistirte?',
-    language: 'es-ES',
-  },
-  {
-    id: 'onwK4e9ZLuTAKqWW03F9', // Daniel - multilingual
-    name: 'Carlos',
-    description: 'Serio y formal',
-    gender: 'male',
-    avatar: '👨',
-    sample: 'Buenas tardes. ¿En qué puedo servirle?',
-    language: 'es-ES',
+    language: 'es-ES', // Default for sample, actual language set per business
   },
 ]
 
@@ -174,7 +156,7 @@ export default function OnboardingVoiceSelection() {
           </div>
 
           {/* Voice Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto mb-8">
             {VOICES.map((voice) => {
               const voiceKey = `${voice.id}-${voice.language}`
               const isSelected = selectedVoice === voiceKey
