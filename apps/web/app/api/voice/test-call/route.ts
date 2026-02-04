@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { businesses } from '@/lib/db/schema'
+import { businesses, users } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -57,13 +57,22 @@ export async function POST(request: NextRequest) {
         .limit(1)
       business = results[0]
     } else {
-      // Find business by user email
-      const results = await db
+      // Find user by email first, then get their business
+      const userResults = await db
         .select()
-        .from(businesses)
-        .where(eq(businesses.ownerEmail, session.user.email))
+        .from(users)
+        .where(eq(users.email, session.user.email))
         .limit(1)
-      business = results[0]
+      
+      const user = userResults[0]
+      if (user) {
+        const businessResults = await db
+          .select()
+          .from(businesses)
+          .where(eq(businesses.userId, user.id))
+          .limit(1)
+        business = businessResults[0]
+      }
     }
     
     if (!business) {
@@ -179,14 +188,24 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    // Check if user has a business
-    const results = await db
+    // Find user by email first, then get their business
+    const userResults = await db
       .select()
-      .from(businesses)
-      .where(eq(businesses.ownerEmail, session.user.email))
+      .from(users)
+      .where(eq(users.email, session.user.email))
       .limit(1)
     
-    const business = results[0]
+    const user = userResults[0]
+    let business = null
+    
+    if (user) {
+      const businessResults = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.userId, user.id))
+        .limit(1)
+      business = businessResults[0]
+    }
     
     if (!business) {
       return NextResponse.json({ 
