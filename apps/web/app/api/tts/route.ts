@@ -58,8 +58,10 @@ export async function POST(request: NextRequest) {
         model_id: langConfig.model,
         language_code: langConfig.code,
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
+          stability: 0.35,           // Lower = more expressive, natural variation
+          similarity_boost: 0.8,     // High similarity to original voice
+          style: 0.4,                // Add some emotional expressiveness
+          use_speaker_boost: true,   // Enhance voice clarity
         },
       }),
     })
