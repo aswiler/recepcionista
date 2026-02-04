@@ -273,8 +273,31 @@ export default function InterviewPage() {
     if (isRecording || status === 'processing' || status === 'speaking') return
     
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      })
+      
+      // Try to use a format Deepgram supports well
+      // Prefer webm with opus codec, fall back to whatever is available
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4'
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = '' // Let browser choose
+          }
+        }
+      }
+      console.log('🎙️ Using audio format:', mimeType || 'browser default')
+      
+      const options = mimeType ? { mimeType } : undefined
+      const mediaRecorder = new MediaRecorder(stream, options)
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
 
@@ -287,7 +310,9 @@ export default function InterviewPage() {
 
       mediaRecorder.onstop = async () => {
         console.log('🛑 Recording stopped, chunks:', audioChunksRef.current.length)
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const actualMimeType = mediaRecorder.mimeType || 'audio/webm'
+        console.log('🎙️ Actual recorded mimeType:', actualMimeType)
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType })
         stream.getTracks().forEach(track => track.stop())
         await processAudio(audioBlob)
       }
@@ -354,11 +379,11 @@ export default function InterviewPage() {
       })
 
       // Send to STT API
-      console.log('🎤 Sending audio to STT...')
+      console.log('🎤 Sending audio to STT...', 'mimeType:', audioBlob.type)
       const sttResponse = await fetch('/api/stt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio: base64Audio })
+        body: JSON.stringify({ audio: base64Audio, mimeType: audioBlob.type })
       })
 
       let userText = ''
