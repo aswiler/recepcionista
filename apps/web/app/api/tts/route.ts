@@ -11,12 +11,17 @@ const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
  * Text-to-Speech using ElevenLabs
  * Converts AI text responses to natural speech
  * 
+ * Supports multiple languages:
+ * - es-ES: Spanish (Castilian/Spain)
+ * - ca: Catalan
+ * 
  * @param text - The text to convert to speech
  * @param voiceId - Optional ElevenLabs voice ID (defaults to Sarah)
+ * @param language - Optional language code (defaults to es-ES for Castilian Spanish)
  */
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId } = await request.json()
+    const { text, voiceId, language } = await request.json()
 
     if (!text) {
       return NextResponse.json({ error: 'No text provided' }, { status: 400 })
@@ -29,6 +34,16 @@ export async function POST(request: NextRequest) {
 
     // Use provided voice ID or default
     const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
+    
+    // Map language codes to ElevenLabs language codes
+    // ElevenLabs uses ISO 639-1 codes
+    const languageMap: Record<string, string> = {
+      'es-ES': 'es',  // Spanish (Castilian)
+      'es': 'es',     // Spanish (generic)
+      'ca': 'ca',     // Catalan
+    }
+    
+    const languageCode = languageMap[language || 'es-ES'] || 'es'
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
       method: 'POST',
@@ -40,7 +55,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         text,
         model_id: 'eleven_multilingual_v2',
-        language_code: 'es', // Spanish (Spain)
+        language_code: languageCode,
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75,

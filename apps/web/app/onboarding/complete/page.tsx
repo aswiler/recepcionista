@@ -23,6 +23,7 @@ import {
   Volume2,
   Loader2
 } from 'lucide-react'
+import TestCallModal from '@/app/components/TestCallModal'
 
 interface ServiceDetail {
   name: string
@@ -76,6 +77,7 @@ export default function OnboardingCompletePage() {
   const [editingSection, setEditingSection] = useState<string | null>(null)
   const [expandedFaqs, setExpandedFaqs] = useState<Set<number>>(new Set([0, 1, 2]))
   const [isSaving, setIsSaving] = useState(false)
+  const [showTestCallModal, setShowTestCallModal] = useState(false)
 
   useEffect(() => {
     // Load onboarding data (from step 1)
@@ -91,21 +93,35 @@ export default function OnboardingCompletePage() {
       setSelectedVoice({ id: voiceId, name: voiceName || 'Voz seleccionada' })
     }
 
-    // Try to load learned info from interview
-    const storedLearned = sessionStorage.getItem('learnedInfo')
-    if (storedLearned) {
-      setInfo(JSON.parse(storedLearned))
-      return
+    // SMART MERGE: Combine scraped data + interview learned data
+    // Priority: Interview data > Scraped data > Onboarding form data
+    
+    let baseInfo: LearnedInfo = {
+      businessName: 'Tu negocio',
+      businessType: 'negocio',
+      services: [],
+      faqs: [],
+      differentiators: [],
+      commonObjections: [],
+      tone: 'Profesional y amable',
     }
-
-    // If no learned info, try scraped data from website
+    
+    // 1. Start with onboarding form data
+    if (storedOnboarding) {
+      const data = JSON.parse(storedOnboarding)
+      baseInfo.businessName = data.businessName || baseInfo.businessName
+      baseInfo.businessType = data.industry || baseInfo.businessType
+    }
+    
+    // 2. Layer in scraped data from website
     const storedScraped = sessionStorage.getItem('scrapedData')
     if (storedScraped) {
       try {
         const scraped = JSON.parse(storedScraped)
-        setInfo({
-          businessName: scraped.businessName || scraped.name || 'Tu negocio',
-          businessType: scraped.businessType || scraped.industry || 'negocio',
+        baseInfo = {
+          ...baseInfo,
+          businessName: scraped.businessName || scraped.name || baseInfo.businessName,
+          businessType: scraped.businessType || scraped.industry || baseInfo.businessType,
           tagline: scraped.tagline,
           description: scraped.description,
           valueProposition: scraped.valueProposition,
@@ -114,52 +130,92 @@ export default function OnboardingCompletePage() {
             ? scraped.services.map((s: string | ServiceDetail) => 
                 typeof s === 'string' ? { name: s } : s
               )
-            : [],
+            : baseInfo.services,
           hours: scraped.hours,
           phone: scraped.phone,
           email: scraped.email,
           address: scraped.address,
-          faqs: scraped.faqs || [],
-          differentiators: scraped.differentiators || [],
-          commonObjections: scraped.commonObjections || [],
+          faqs: scraped.faqs || baseInfo.faqs,
+          differentiators: scraped.differentiators || baseInfo.differentiators,
+          commonObjections: scraped.commonObjections || baseInfo.commonObjections,
           bookingInfo: scraped.bookingInfo,
           paymentMethods: scraped.paymentMethods,
           languages: scraped.languages,
-          appointmentRules: scraped.appointmentRules || '',
-          tone: scraped.tone || 'Profesional y amable',
-        })
-        return
+        }
       } catch (e) {
         console.error('Error parsing scraped data:', e)
       }
     }
-
-    // Use onboarding data for business name
-    if (storedOnboarding) {
-      const data = JSON.parse(storedOnboarding)
-      setInfo({
-        businessName: data.businessName || 'Tu negocio',
-        businessType: data.industry || 'negocio',
-        services: [],
-        faqs: [],
-        differentiators: [],
-        commonObjections: [],
-        tone: 'Profesional y amable',
-      })
-      return
+    
+    // 3. Finally, layer in interview learned data (highest priority)
+    const storedLearned = sessionStorage.getItem('learnedInfo')
+    if (storedLearned) {
+      try {
+        const learned = JSON.parse(storedLearned)
+        
+        // Merge learned data, preferring learned values when they exist
+        baseInfo = {
+          ...baseInfo,
+          businessName: learned.businessName || baseInfo.businessName,
+          businessType: learned.businessType || baseInfo.businessType,
+          description: learned.description || baseInfo.description,
+          // For arrays, merge if interview has data, otherwise keep scraped
+          services: (learned.services && learned.services.length > 0) 
+            ? mergeServices(baseInfo.services || [], learned.services)
+            : baseInfo.services,
+          hours: learned.hours || baseInfo.hours,
+          faqs: (learned.faqs && learned.faqs.length > 0)
+            ? mergeFaqs(baseInfo.faqs || [], learned.faqs)
+            : baseInfo.faqs,
+          appointmentRules: learned.appointmentProcess || learned.appointmentRules || baseInfo.appointmentRules,
+          tone: learned.tone || baseInfo.tone,
+          // Transfer rules from interview
+          ...(learned.transferRules && { transferRules: learned.transferRules }),
+        }
+      } catch (e) {
+        console.error('Error parsing learned info:', e)
+      }
     }
-
-    // Fallback: prompt user to add info
-    setInfo({
-      businessName: 'Tu negocio',
-      businessType: 'negocio',
-      services: [],
-      faqs: [],
-      differentiators: [],
-      commonObjections: [],
-      tone: 'Profesional y amable',
-    })
+    
+    setInfo(baseInfo)
   }, [])
+  
+  // Helper function to merge services arrays
+  const mergeServices = (existing: ServiceDetail[], newServices: ServiceDetail[]): ServiceDetail[] => {
+    const merged = [...existing]
+    for (const newService of newServices) {
+      const existingIndex = merged.findIndex(s => 
+        s.name.toLowerCase() === newService.name.toLowerCase()
+      )
+      if (existingIndex >= 0) {
+        // Update existing service with new info
+        merged[existingIndex] = { ...merged[existingIndex], ...newService }
+      } else {
+        // Add new service
+        merged.push(newService)
+      }
+    }
+    return merged
+  }
+  
+  // Helper function to merge FAQs arrays
+  const mergeFaqs = (existing: FAQ[], newFaqs: FAQ[]): FAQ[] => {
+    const merged = [...existing]
+    for (const newFaq of newFaqs) {
+      const existingIndex = merged.findIndex(f => 
+        f.question.toLowerCase().includes(newFaq.question.toLowerCase().slice(0, 20)) ||
+        newFaq.question.toLowerCase().includes(f.question.toLowerCase().slice(0, 20))
+      )
+      if (existingIndex >= 0) {
+        // Update existing FAQ with new info
+        merged[existingIndex] = { ...merged[existingIndex], ...newFaq }
+      } else {
+        // Add new FAQ
+        merged.push(newFaq)
+      }
+    }
+    return merged
+  }
 
   const toggleFaq = (index: number) => {
     setExpandedFaqs(prev => {
@@ -174,7 +230,7 @@ export default function OnboardingCompletePage() {
   }
 
   const startTestCall = () => {
-    alert('¡Llamada de prueba iniciada! Tu teléfono sonará en unos segundos.')
+    setShowTestCallModal(true)
   }
 
   const goToDashboard = async () => {
@@ -598,6 +654,13 @@ export default function OnboardingCompletePage() {
           </button>
         </div>
       </div>
+      
+      {/* Test Call Modal */}
+      <TestCallModal
+        isOpen={showTestCallModal}
+        onClose={() => setShowTestCallModal(false)}
+        businessName={info.businessName || onboardingData?.businessName}
+      />
     </main>
   )
 }

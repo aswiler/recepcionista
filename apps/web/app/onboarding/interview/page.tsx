@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   Mic, 
@@ -10,7 +10,14 @@ import {
   Circle,
   Loader2,
   MessageCircle,
-  ArrowLeft
+  ArrowLeft,
+  Clock,
+  Sparkles,
+  Building2,
+  Calendar,
+  HelpCircle,
+  Phone,
+  Users
 } from 'lucide-react'
 
 interface Message {
@@ -18,24 +25,66 @@ interface Message {
   text: string
 }
 
-const INTERVIEW_TOPICS = [
-  { id: 'intro', label: 'Información básica', done: false },
-  { id: 'services', label: 'Servicios', done: false },
-  { id: 'hours', label: 'Horarios', done: false },
-  { id: 'appointments', label: 'Citas', done: false },
-  { id: 'faqs', label: 'Preguntas frecuentes', done: false },
-  { id: 'escalation', label: 'Transferencias', done: false },
+interface ExtractedInfo {
+  businessName?: string
+  businessType?: string
+  description?: string
+  services?: Array<{
+    name: string
+    description?: string
+    price?: string
+    duration?: string
+  }>
+  hours?: string
+  appointmentProcess?: string
+  cancellationPolicy?: string
+  faqs?: Array<{ question: string; answer: string }>
+  transferRules?: {
+    urgencies?: string[]
+    complexCases?: string[]
+  }
+  tone?: string
+  specialInstructions?: string
+}
+
+interface InterviewState {
+  currentPhase: string
+  phasesCompleted: string[]
+  extractedInfo: ExtractedInfo
+  questionsAskedInPhase: number
+  totalExchanges: number
+  confidence: Record<string, number>
+}
+
+interface Progress {
+  current: number
+  total: number
+  percentage: number
+}
+
+const INTERVIEW_PHASES = [
+  { id: 'intro', label: 'Confirmación', icon: Building2, color: 'blue' },
+  { id: 'services', label: 'Servicios', icon: Sparkles, color: 'purple' },
+  { id: 'hours', label: 'Horarios', icon: Clock, color: 'green' },
+  { id: 'appointments', label: 'Citas', icon: Calendar, color: 'orange' },
+  { id: 'faqs', label: 'FAQs', icon: HelpCircle, color: 'pink' },
+  { id: 'escalation', label: 'Transferencias', icon: Phone, color: 'red' },
 ]
 
 export default function InterviewPage() {
   const router = useRouter()
   const [status, setStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking' | 'complete'>('idle')
   const [messages, setMessages] = useState<Message[]>([])
-  const [currentTopic, setCurrentTopic] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
   const [aiSpeaking, setAiSpeaking] = useState(false)
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null)
   const [businessName, setBusinessName] = useState<string>('')
+  const [businessType, setBusinessType] = useState<string>('')
+  const [interviewState, setInterviewState] = useState<InterviewState | null>(null)
+  const [progress, setProgress] = useState<Progress>({ current: 0, total: 6, percentage: 0 })
+  const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo>({})
+  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState<string>('3-5 min')
+  const [startTime, setStartTime] = useState<number | null>(null)
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -49,14 +98,35 @@ export default function InterviewPage() {
       return
     }
 
-    // Load business name
     const parsed = JSON.parse(onboardingData)
     setBusinessName(parsed.businessName || '')
 
-    // Load selected voice
+    // Load scraped data for business type
+    const scrapedData = sessionStorage.getItem('scrapedData')
+    if (scrapedData) {
+      try {
+        const scraped = JSON.parse(scrapedData)
+        setBusinessType(scraped.businessType || parsed.industry || '')
+      } catch {
+        setBusinessType(parsed.industry || '')
+      }
+    }
+
     const voiceId = sessionStorage.getItem('selectedVoice')
     if (voiceId) {
       setSelectedVoiceId(voiceId)
+    }
+    
+    // Check for resumed interview
+    const savedState = sessionStorage.getItem('interviewState')
+    if (savedState) {
+      try {
+        const state = JSON.parse(savedState)
+        setInterviewState(state)
+        setExtractedInfo(state.extractedInfo || {})
+      } catch {
+        // Start fresh
+      }
     }
   }, [router])
 
@@ -65,23 +135,71 @@ export default function InterviewPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Start the interview with a greeting
+  // Update estimated time based on progress
+  useEffect(() => {
+    if (startTime && progress.percentage > 0) {
+      const elapsed = (Date.now() - startTime) / 1000 / 60 // minutes
+      const estimatedTotal = elapsed / (progress.percentage / 100)
+      const remaining = Math.max(0, estimatedTotal - elapsed)
+      
+      if (remaining < 1) {
+        setEstimatedTimeLeft('< 1 min')
+      } else {
+        setEstimatedTimeLeft(`~${Math.ceil(remaining)} min`)
+      }
+    }
+  }, [progress, startTime])
+
+  // Save state on changes
+  useEffect(() => {
+    if (interviewState) {
+      sessionStorage.setItem('interviewState', JSON.stringify(interviewState))
+    }
+  }, [interviewState])
+
+  // Start the interview with a smart greeting
   const startInterview = async () => {
     setStatus('processing')
+    setStartTime(Date.now())
     
-    // Get scraped data and onboarding data
     const scrapedData = sessionStorage.getItem('scrapedData')
-    const businessInfo = scrapedData ? JSON.parse(scrapedData) : {}
+    let scraped: Record<string, unknown> = {}
+    try {
+      if (scrapedData) scraped = JSON.parse(scrapedData)
+    } catch {
+      // Use empty object
+    }
     
-    // Generate greeting using business name
-    const name = businessName || businessInfo.businessName
-    const greeting = name 
-      ? `¡Hola! Veo que tu negocio es ${name}. Me encantaría conocer más sobre ti. ¿Puedes contarme brevemente qué servicios ofreces?`
-      : `¡Hola! Soy tu asistente de Recepcionista.com. Voy a hacerte algunas preguntas para configurar tu recepcionista AI. ¿Puedes empezar contándome el nombre de tu negocio?`
+    // Generate smart greeting based on what we know
+    const name = businessName || scraped.businessName as string
+    const type = businessType || scraped.businessType as string
+    const hasServices = scraped.services && Array.isArray(scraped.services) && scraped.services.length > 0
+    
+    let greeting: string
+    
+    if (name && type && hasServices) {
+      // We know a lot - confirm and dig deeper
+      greeting = `¡Hola! He revisado la información de ${name}. Veo que sois ${type === 'software' ? 'una empresa de software' : `un negocio de ${type}`}. Me gustaría confirmar algunos detalles y conocer cosas que no aparecen en vuestra web. ¿Empezamos?`
+    } else if (name) {
+      // We know the name but not much else
+      greeting = `¡Hola! Soy la asistente de Recepcionista.com. Voy a ayudarte a configurar tu recepcionista AI para ${name}. Serán solo 3-5 minutos de preguntas. ¿Puedes contarme brevemente a qué os dedicáis?`
+    } else {
+      // We know nothing
+      greeting = `¡Hola! Soy la asistente de Recepcionista.com. Voy a hacerte algunas preguntas para configurar tu recepcionista AI de forma personalizada. Serán unos 3-5 minutos. ¿Empezamos por el nombre de tu negocio?`
+    }
     
     setMessages([{ role: 'assistant', text: greeting }])
     
-    // Speak the greeting
+    // Initialize state
+    setInterviewState({
+      currentPhase: 'intro',
+      phasesCompleted: [],
+      extractedInfo: scraped as unknown as ExtractedInfo,
+      questionsAskedInPhase: 0,
+      totalExchanges: 0,
+      confidence: {},
+    })
+    
     await speakText(greeting)
     setStatus('listening')
   }
@@ -97,7 +215,7 @@ export default function InterviewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           text,
-          voiceId: selectedVoiceId, // Use selected voice
+          voiceId: selectedVoiceId,
         })
       })
       
@@ -118,11 +236,9 @@ export default function InterviewPage() {
           audio.play().catch(() => resolve())
         })
       } else {
-        // Fallback to browser TTS
         await browserTTS(text)
       }
-    } catch (error) {
-      // Fallback to browser TTS
+    } catch {
       await browserTTS(text)
     }
     
@@ -182,9 +298,9 @@ export default function InterviewPage() {
     }
   }
 
-  // Toggle recording (tap-to-toggle pattern for better mobile support)
+  // Toggle recording
   const toggleRecording = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault() // Prevent ghost clicks on mobile
+    e.preventDefault()
     
     if (status === 'processing' || status === 'speaking') return
     
@@ -196,7 +312,7 @@ export default function InterviewPage() {
   }
 
   // Process audio: transcribe and get AI response
-  const processAudio = async (audioBlob: Blob) => {
+  const processAudio = useCallback(async (audioBlob: Blob) => {
     setStatus('processing')
     
     try {
@@ -229,16 +345,18 @@ export default function InterviewPage() {
       }
 
       // Add user message
-      setMessages(prev => [...prev, { role: 'user', text: userText }])
+      const newMessages = [...messages, { role: 'user' as const, text: userText }]
+      setMessages(newMessages)
 
-      // Get AI response
+      // Get AI response with enhanced interview state
       const aiResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, { role: 'user', text: userText }],
-          topic: INTERVIEW_TOPICS[currentTopic]?.id,
-          scrapedData: sessionStorage.getItem('scrapedData')
+          messages: newMessages,
+          topic: interviewState?.currentPhase || 'intro',
+          scrapedData: sessionStorage.getItem('scrapedData'),
+          interviewState: interviewState,
         })
       })
 
@@ -248,18 +366,37 @@ export default function InterviewPage() {
         
         setMessages(prev => [...prev, { role: 'assistant', text: aiText }])
         
-        // Check if topic is complete
-        if (data.topicComplete && currentTopic < INTERVIEW_TOPICS.length - 1) {
-          setCurrentTopic(prev => prev + 1)
+        // Update state from response
+        if (data.interviewState) {
+          setInterviewState(data.interviewState)
+        }
+        
+        // Update extracted info
+        if (data.extractedInfo) {
+          setExtractedInfo(data.extractedInfo)
+          // Also save to session storage for review page
+          sessionStorage.setItem('learnedInfo', JSON.stringify(data.extractedInfo))
+        }
+        
+        // Update progress
+        if (data.progress) {
+          setProgress(data.progress)
         }
         
         // Check if interview is complete
-        if (data.interviewComplete || currentTopic >= INTERVIEW_TOPICS.length - 1) {
+        if (data.interviewComplete) {
+          // Add completion message
+          const completionMsg = '¡Perfecto! Ya tengo toda la información que necesito. Tu recepcionista AI va a quedar increíble. Haz clic en "Continuar" para ver el resumen.'
           setMessages(prev => [...prev, { 
             role: 'assistant', 
-            text: '¡Perfecto! Ya tengo toda la información que necesito. Tu recepcionista AI está lista. Haz clic en "Continuar" para ver el resumen.'
+            text: completionMsg
           }])
           setStatus('complete')
+          setProgress({ current: 6, total: 6, percentage: 100 })
+          
+          // Save final state
+          sessionStorage.setItem('interviewMessages', JSON.stringify([...newMessages, { role: 'assistant', text: aiText }, { role: 'assistant', text: completionMsg }]))
+          sessionStorage.setItem('learnedInfo', JSON.stringify(data.extractedInfo || extractedInfo))
           return
         }
         
@@ -270,24 +407,30 @@ export default function InterviewPage() {
       console.error('Error processing audio:', error)
       setStatus('listening')
     }
-  }
+  }, [messages, interviewState, extractedInfo])
 
-  // Skip interview (for demo)
+  // Skip interview
   const skipInterview = () => {
     setStatus('complete')
     setMessages([
-      { role: 'assistant', text: 'Entrevista completada. Tu recepcionista está configurada con la información proporcionada.' }
+      { role: 'assistant', text: 'Entrevista completada. Tu recepcionista está configurada con la información del sitio web.' }
     ])
   }
 
   const continueToReview = () => {
     sessionStorage.setItem('interviewMessages', JSON.stringify(messages))
+    if (Object.keys(extractedInfo).length > 0) {
+      sessionStorage.setItem('learnedInfo', JSON.stringify(extractedInfo))
+    }
     router.push('/onboarding/complete')
   }
 
   const goBack = () => {
     router.push('/onboarding/voice')
   }
+
+  // Get current phase index for display
+  const currentPhaseIndex = INTERVIEW_PHASES.findIndex(p => p.id === interviewState?.currentPhase)
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
@@ -298,7 +441,7 @@ export default function InterviewPage() {
         <div className="flex-1 flex flex-col p-4 md:p-8">
           <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full">
             {/* Progress indicator */}
-            <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="flex items-center justify-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-full bg-blue-500/50 flex items-center justify-center text-white/70 text-sm font-medium">✓</div>
               <div className="w-8 md:w-12 h-1 bg-blue-500/50 rounded" />
               <div className="w-8 h-8 rounded-full bg-blue-500/50 flex items-center justify-center text-white/70 text-sm font-medium">✓</div>
@@ -306,23 +449,50 @@ export default function InterviewPage() {
               <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">3</div>
             </div>
 
-            {/* Header */}
-            <div className="text-center mb-6">
+            {/* Header with time estimate */}
+            <div className="text-center mb-4">
               <h1 className="text-2xl font-bold text-white mb-2">
-                Entrevista con tu AI
+                Entrevista inteligente
               </h1>
-              <p className="text-blue-200">
-                Habla directamente con tu recepcionista para configurarla
-              </p>
+              <div className="flex items-center justify-center gap-4 text-sm">
+                <span className="text-blue-200">
+                  Habla con tu recepcionista AI
+                </span>
+                {status !== 'idle' && (
+                  <span className="flex items-center gap-1 text-blue-300 bg-blue-500/20 px-3 py-1 rounded-full">
+                    <Clock className="w-3 h-3" />
+                    {estimatedTimeLeft}
+                  </span>
+                )}
+              </div>
             </div>
 
+            {/* Progress bar */}
+            {status !== 'idle' && (
+              <div className="mb-4">
+                <div className="flex justify-between text-xs text-blue-300 mb-1">
+                  <span>Progreso: {progress.percentage}%</span>
+                  <span>{progress.current}/{progress.total} temas</span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-500"
+                    style={{ width: `${progress.percentage}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Messages area */}
-            <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-4 md:p-6 mb-6 overflow-y-auto max-h-[45vh] md:max-h-[50vh]">
+            <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-4 md:p-6 mb-4 overflow-y-auto max-h-[40vh] md:max-h-[45vh]">
               {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <MessageCircle className="w-12 h-12 text-blue-400/50 mb-4" />
-                  <p className="text-white/50">
-                    Haz clic en "Iniciar" para comenzar la entrevista
+                  <p className="text-white/50 mb-2">
+                    Haz clic en &ldquo;Iniciar&rdquo; para comenzar
+                  </p>
+                  <p className="text-white/30 text-sm max-w-xs">
+                    La AI te hará preguntas inteligentes adaptadas a tu tipo de negocio
                   </p>
                 </div>
               ) : (
@@ -365,7 +535,7 @@ export default function InterviewPage() {
                              text-white font-semibold rounded-full transition-all
                              hover:scale-105 active:scale-95 shadow-lg shadow-green-500/30"
                   >
-                    <Mic className="w-5 h-5" />
+                    <Sparkles className="w-5 h-5" />
                     Iniciar entrevista
                   </button>
                   <button
@@ -404,7 +574,7 @@ export default function InterviewPage() {
                     )}
                   </div>
 
-                  {/* Mic button - TAP TO TOGGLE (mobile-friendly) */}
+                  {/* Mic button */}
                   <button
                     onClick={toggleRecording}
                     onTouchEnd={toggleRecording}
@@ -440,61 +610,126 @@ export default function InterviewPage() {
                            text-white font-semibold rounded-full transition-all
                            hover:scale-105 active:scale-95"
                 >
-                  Continuar
+                  Ver resumen
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right panel - Progress (hidden on mobile) */}
-        <div className="hidden lg:block w-80 bg-black/20 border-l border-white/10 p-6">
-          <h3 className="text-sm font-medium text-blue-200 mb-4 uppercase tracking-wider">
-            Progreso de la entrevista
-          </h3>
-          
-          <div className="space-y-3">
-            {INTERVIEW_TOPICS.map((topic, index) => (
-              <div
-                key={topic.id}
-                className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-                  index < currentTopic
-                    ? 'bg-green-500/10'
-                    : index === currentTopic && status !== 'idle'
-                    ? 'bg-blue-500/20 border border-blue-500/30'
-                    : 'bg-white/5'
-                }`}
-              >
-                <div className={`flex-shrink-0 ${
-                  index < currentTopic
-                    ? 'text-green-400'
-                    : index === currentTopic && status !== 'idle'
-                    ? 'text-blue-400'
-                    : 'text-white/30'
-                }`}>
-                  {index < currentTopic ? (
-                    <Check className="w-5 h-5" />
-                  ) : index === currentTopic && status !== 'idle' ? (
-                    <Circle className="w-5 h-5 animate-pulse" />
-                  ) : (
-                    <Circle className="w-5 h-5" />
-                  )}
-                </div>
-                <span className={`text-sm ${
-                  index < currentTopic
-                    ? 'text-green-300'
-                    : index === currentTopic && status !== 'idle'
-                    ? 'text-white'
-                    : 'text-white/50'
-                }`}>
-                  {topic.label}
-                </span>
-              </div>
-            ))}
+        {/* Right panel - Progress & Extracted Info */}
+        <div className="hidden lg:flex lg:flex-col w-96 bg-black/20 border-l border-white/10 p-6 overflow-y-auto">
+          {/* Phase Progress */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-blue-200 mb-4 uppercase tracking-wider flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Temas de la entrevista
+            </h3>
+            
+            <div className="space-y-2">
+              {INTERVIEW_PHASES.map((phase, index) => {
+                const Icon = phase.icon
+                const isCompleted = interviewState?.phasesCompleted.includes(phase.id)
+                const isCurrent = phase.id === interviewState?.currentPhase && status !== 'idle'
+                
+                return (
+                  <div
+                    key={phase.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
+                      isCompleted
+                        ? 'bg-green-500/10 border border-green-500/20'
+                        : isCurrent
+                        ? 'bg-blue-500/20 border border-blue-500/30'
+                        : 'bg-white/5'
+                    }`}
+                  >
+                    <div className={`flex-shrink-0 p-2 rounded-lg ${
+                      isCompleted
+                        ? 'bg-green-500/20 text-green-400'
+                        : isCurrent
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'bg-white/5 text-white/30'
+                    }`}>
+                      {isCompleted ? (
+                        <Check className="w-4 h-4" />
+                      ) : isCurrent ? (
+                        <Icon className="w-4 h-4 animate-pulse" />
+                      ) : (
+                        <Icon className="w-4 h-4" />
+                      )}
+                    </div>
+                    <span className={`text-sm ${
+                      isCompleted
+                        ? 'text-green-300'
+                        : isCurrent
+                        ? 'text-white font-medium'
+                        : 'text-white/50'
+                    }`}>
+                      {phase.label}
+                    </span>
+                    {isCurrent && interviewState && (
+                      <span className="ml-auto text-xs text-blue-300">
+                        {interviewState.questionsAskedInPhase}/3
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
+          {/* Extracted Info Preview */}
+          {Object.keys(extractedInfo).length > 0 && (
+            <div className="mt-auto">
+              <h3 className="text-sm font-medium text-blue-200 mb-4 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                Información aprendida
+              </h3>
+              
+              <div className="space-y-3 text-sm">
+                {extractedInfo.businessName && (
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <div className="text-white/50 text-xs mb-1">Negocio</div>
+                    <div className="text-white">{extractedInfo.businessName}</div>
+                  </div>
+                )}
+                
+                {extractedInfo.services && extractedInfo.services.length > 0 && (
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <div className="text-white/50 text-xs mb-1">Servicios ({extractedInfo.services.length})</div>
+                    <div className="text-white text-xs space-y-1">
+                      {extractedInfo.services.slice(0, 3).map((s, i) => (
+                        <div key={i} className="flex justify-between">
+                          <span className="truncate">{s.name}</span>
+                          {s.price && <span className="text-green-400 ml-2">{s.price}</span>}
+                        </div>
+                      ))}
+                      {extractedInfo.services.length > 3 && (
+                        <div className="text-white/40">+{extractedInfo.services.length - 3} más</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {extractedInfo.hours && (
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <div className="text-white/50 text-xs mb-1">Horarios</div>
+                    <div className="text-white text-xs">{extractedInfo.hours}</div>
+                  </div>
+                )}
+                
+                {extractedInfo.faqs && extractedInfo.faqs.length > 0 && (
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <div className="text-white/50 text-xs mb-1">FAQs aprendidas</div>
+                    <div className="text-white">{extractedInfo.faqs.length} preguntas</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {status === 'complete' && (
-            <div className="mt-8 p-4 bg-green-500/10 rounded-lg border border-green-500/20">
+            <div className="mt-6 p-4 bg-green-500/10 rounded-lg border border-green-500/20">
               <Check className="w-6 h-6 text-green-400 mb-2" />
               <p className="text-green-300 text-sm">
                 ¡Entrevista completada! Tu recepcionista está lista.

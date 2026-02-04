@@ -20,8 +20,10 @@ import {
   Volume2,
   Sparkles,
   Loader2,
-  XCircle
+  XCircle,
+  PhoneCall
 } from 'lucide-react'
+import TestCallModal from '@/app/components/TestCallModal'
 
 const settingsSections = [
   {
@@ -564,6 +566,8 @@ function WhatsAppSettings() {
 }
 
 function PhoneSettings() {
+  const [showTestCallModal, setShowTestCallModal] = useState(false)
+  
   return (
     <div className="space-y-6">
       <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
@@ -586,8 +590,26 @@ function PhoneSettings() {
               <span className="text-sm text-emerald-400">Online</span>
             </div>
           </div>
+          
+          {/* Test Call Button */}
+          <button
+            onClick={() => setShowTestCallModal(true)}
+            className="mt-4 w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-medium rounded-xl transition-colors"
+          >
+            <PhoneCall className="w-5 h-5" />
+            Hacer llamada de prueba
+          </button>
+          <p className="mt-2 text-center text-xs text-slate-500">
+            Recibe una llamada para probar tu recepcionista AI
+          </p>
         </div>
       </div>
+      
+      {/* Test Call Modal */}
+      <TestCallModal
+        isOpen={showTestCallModal}
+        onClose={() => setShowTestCallModal(false)}
+      />
 
       <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
         <div className="p-5 border-b border-white/10">
