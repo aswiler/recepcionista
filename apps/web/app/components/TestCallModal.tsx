@@ -174,7 +174,7 @@ export default function TestCallModal({
             </div>
           )}
           
-          {(status === 'ready' || status === 'error' || status === 'idle') && serviceAvailable !== false && (
+          {(status === 'ready' || status === 'error' || status === 'idle' || status === 'calling') && serviceAvailable !== false && (
             <>
               {businessName && (
                 <div className="mb-4 p-3 bg-white/5 rounded-lg border border-white/10">
