@@ -542,10 +542,12 @@ function mergeExtractedInfo(existing: ExtractedInfo, newInfo: Partial<ExtractedI
     // For arrays, append new items
     if (Array.isArray(value) && Array.isArray(merged[typedKey])) {
       const existingArray = merged[typedKey] as unknown[]
-      merged[typedKey] = [...existingArray, ...value] as ExtractedInfo[typeof typedKey]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(merged as any)[typedKey] = [...existingArray, ...value]
     } else {
       // For other values, replace
-      merged[typedKey] = value as ExtractedInfo[typeof typedKey]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(merged as any)[typedKey] = value
     }
   }
   
