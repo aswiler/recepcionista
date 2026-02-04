@@ -112,9 +112,19 @@ export default function InterviewPage() {
       }
     }
 
-    const voiceId = sessionStorage.getItem('selectedVoice')
+    // Get the actual ElevenLabs voice ID (not the key with language suffix)
+    const voiceId = sessionStorage.getItem('selectedVoiceId')
     if (voiceId) {
+      console.log('🎤 Using ElevenLabs voice:', voiceId)
       setSelectedVoiceId(voiceId)
+    } else {
+      // Fallback: try to extract from selectedVoice (format: voiceId-language)
+      const selectedVoice = sessionStorage.getItem('selectedVoice')
+      if (selectedVoice) {
+        const extractedId = selectedVoice.split('-')[0]
+        console.log('🎤 Extracted voice ID from selectedVoice:', extractedId)
+        setSelectedVoiceId(extractedId)
+      }
     }
     
     // Check for resumed interview
