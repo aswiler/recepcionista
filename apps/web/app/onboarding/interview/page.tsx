@@ -337,6 +337,7 @@ export default function InterviewPage() {
       })
 
       // Send to STT API
+      console.log('🎤 Sending audio to STT...')
       const sttResponse = await fetch('/api/stt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -346,10 +347,26 @@ export default function InterviewPage() {
       let userText = ''
       if (sttResponse.ok) {
         const data = await sttResponse.json()
+        console.log('📝 STT response:', data)
         userText = data.text || ''
+        
+        // Check if STT returned an error message
+        if (data.error) {
+          console.error('STT error:', data.error)
+        }
+      } else {
+        console.error('STT failed with status:', sttResponse.status)
+        const errorData = await sttResponse.json().catch(() => ({}))
+        console.error('STT error data:', errorData)
       }
 
       if (!userText) {
+        console.log('⚠️ No text detected from speech')
+        // Add a message to inform the user
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          text: 'No pude escucharte bien. ¿Puedes hablar más cerca del micrófono e intentarlo de nuevo?' 
+        }])
         setStatus('listening')
         return
       }

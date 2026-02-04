@@ -16,8 +16,11 @@ export async function POST(request: NextRequest) {
 
     if (!DEEPGRAM_API_KEY) {
       // Fallback: return empty text if no API key
-      console.warn('DEEPGRAM_API_KEY not set')
-      return NextResponse.json({ text: '' })
+      console.error('DEEPGRAM_API_KEY not set - speech recognition will not work')
+      return NextResponse.json({ 
+        text: '', 
+        error: 'Speech recognition not configured. Please add DEEPGRAM_API_KEY to environment variables.' 
+      })
     }
 
     // Convert base64 to buffer
@@ -34,12 +37,19 @@ export async function POST(request: NextRequest) {
     })
 
     if (!response.ok) {
-      console.error('Deepgram error:', await response.text())
-      return NextResponse.json({ text: '' })
+      const errorText = await response.text()
+      console.error('Deepgram error:', response.status, errorText)
+      return NextResponse.json({ 
+        text: '', 
+        error: `Deepgram API error: ${response.status}`,
+        details: errorText
+      })
     }
 
     const data = await response.json()
     const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
+    
+    console.log('Deepgram transcript:', transcript ? transcript.substring(0, 100) : '(empty)')
 
     return NextResponse.json({ text: transcript })
   } catch (error) {
