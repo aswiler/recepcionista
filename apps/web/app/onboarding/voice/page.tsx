@@ -132,7 +132,7 @@ export default function OnboardingVoiceSelection() {
 
   const currentCategory = VOICE_CATEGORIES.find(c => c.id === selectedCategory)
 
-  const playVoiceSample = async (voice: typeof ALL_VOICES[0]) => {
+  const playVoiceSample = async (voice: { id: string; name: string; description: string; gender: string; avatar: string; sample: string; language: string }) => {
     const voiceKey = `${voice.id}-${voice.language}`
     
     // Stop any currently playing audio
