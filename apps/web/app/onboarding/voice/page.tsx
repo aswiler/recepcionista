@@ -4,108 +4,51 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Mic, ArrowRight, ArrowLeft, Loader2, Play, Pause, Volume2 } from 'lucide-react'
 
-// Voice options organized by language/region
-// Using ElevenLabs multilingual voices optimized for Spanish (Castilian) and Catalan
-// Note: Voice IDs are from ElevenLabs Voice Library - these are placeholder IDs that should be 
-// replaced with actual voice IDs from your ElevenLabs account's Voice Library
-const VOICE_CATEGORIES = [
+// Voice options for Spanish (Castilian)
+// Voice IDs from ElevenLabs Voice Library - replace with your selected voices
+// TODO: Add more languages when suitable voices are found
+const VOICES = [
   {
-    id: 'castellano',
-    name: 'Español (Castellano)',
-    flag: '🇪🇸',
-    voices: [
-      {
-        id: 'EXAVITQu4vr4xnSDxMaL', // Sarah - multilingual, works well with Spanish
-        name: 'Sara',
-        description: 'Profesional y equilibrada',
-        gender: 'female',
-        avatar: '👩‍💼',
-        sample: 'Hola, soy tu recepcionista virtual. ¿En qué puedo ayudarte hoy?',
-        language: 'es-ES',
-      },
-      {
-        id: 'pFZP5JQG7iQjIQuC4Bku', // Lily - multilingual
-        name: 'María',
-        description: 'Cálida y cercana',
-        gender: 'female',
-        avatar: '👩',
-        sample: 'Bienvenido, es un placer atenderte. ¿Qué necesitas?',
-        language: 'es-ES',
-      },
-      {
-        id: 'TX3LPaxmHKxFdv7VOQHJ', // Liam - multilingual, professional
-        name: 'Pablo',
-        description: 'Profesional y confiable',
-        gender: 'male',
-        avatar: '👨‍💼',
-        sample: 'Buenos días, gracias por llamar. ¿Cómo puedo asistirte?',
-        language: 'es-ES',
-      },
-      {
-        id: 'onwK4e9ZLuTAKqWW03F9', // Daniel - multilingual, serious
-        name: 'Carlos',
-        description: 'Serio y formal',
-        gender: 'male',
-        avatar: '👨',
-        sample: 'Buenas tardes. ¿En qué puedo servirle?',
-        language: 'es-ES',
-      },
-    ],
+    id: 'EXAVITQu4vr4xnSDxMaL', // Sarah - multilingual
+    name: 'Sara',
+    description: 'Profesional y equilibrada',
+    gender: 'female',
+    avatar: '👩‍💼',
+    sample: 'Hola, soy tu recepcionista virtual. ¿En qué puedo ayudarte hoy?',
+    language: 'es-ES',
   },
   {
-    id: 'catala',
-    name: 'Català',
-    flag: '🏴󠁥󠁳󠁣󠁴󠁿',
-    voices: [
-      {
-        id: 'EXAVITQu4vr4xnSDxMaL', // Sarah - multilingual
-        name: 'Marta',
-        description: 'Professional i equilibrada',
-        gender: 'female',
-        avatar: '👩‍💼',
-        sample: 'Hola, soc la teva recepcionista virtual. En què puc ajudar-te avui?',
-        language: 'ca',
-      },
-      {
-        id: 'pFZP5JQG7iQjIQuC4Bku', // Lily - multilingual
-        name: 'Laia',
-        description: 'Càlida i propera',
-        gender: 'female',
-        avatar: '👩',
-        sample: 'Benvingut, és un plaer atendre\'t. Què necessites?',
-        language: 'ca',
-      },
-      {
-        id: 'TX3LPaxmHKxFdv7VOQHJ', // Liam - multilingual
-        name: 'Jordi',
-        description: 'Professional i fiable',
-        gender: 'male',
-        avatar: '👨‍💼',
-        sample: 'Bon dia, gràcies per trucar. Com puc ajudar-te?',
-        language: 'ca',
-      },
-      {
-        id: 'onwK4e9ZLuTAKqWW03F9', // Daniel - multilingual
-        name: 'Marc',
-        description: 'Seriós i formal',
-        gender: 'male',
-        avatar: '👨',
-        sample: 'Bona tarda. En què puc servir-lo?',
-        language: 'ca',
-      },
-    ],
+    id: 'pFZP5JQG7iQjIQuC4Bku', // Lily - multilingual
+    name: 'María',
+    description: 'Cálida y cercana',
+    gender: 'female',
+    avatar: '👩',
+    sample: 'Bienvenido, es un placer atenderte. ¿Qué necesitas?',
+    language: 'es-ES',
+  },
+  {
+    id: 'TX3LPaxmHKxFdv7VOQHJ', // Liam - multilingual
+    name: 'Pablo',
+    description: 'Profesional y confiable',
+    gender: 'male',
+    avatar: '👨‍💼',
+    sample: 'Buenos días, gracias por llamar. ¿Cómo puedo asistirte?',
+    language: 'es-ES',
+  },
+  {
+    id: 'onwK4e9ZLuTAKqWW03F9', // Daniel - multilingual
+    name: 'Carlos',
+    description: 'Serio y formal',
+    gender: 'male',
+    avatar: '👨',
+    sample: 'Buenas tardes. ¿En qué puedo servirle?',
+    language: 'es-ES',
   },
 ]
-
-// Flatten voices for easy lookup
-const ALL_VOICES = VOICE_CATEGORIES.flatMap(cat => 
-  cat.voices.map(v => ({ ...v, category: cat.id, categoryName: cat.name }))
-)
 
 export default function OnboardingVoiceSelection() {
   const router = useRouter()
   const [selectedVoice, setSelectedVoice] = useState<string | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<string>('castellano')
   const [playingVoice, setPlayingVoice] = useState<string | null>(null)
   const [loadingVoice, setLoadingVoice] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -122,15 +65,8 @@ export default function OnboardingVoiceSelection() {
     const savedVoice = sessionStorage.getItem('selectedVoice')
     if (savedVoice) {
       setSelectedVoice(savedVoice)
-      // Find which category this voice belongs to
-      const voice = ALL_VOICES.find(v => `${v.id}-${v.language}` === savedVoice)
-      if (voice) {
-        setSelectedCategory(voice.category)
-      }
     }
   }, [router])
-
-  const currentCategory = VOICE_CATEGORIES.find(c => c.id === selectedCategory)
 
   const playVoiceSample = async (voice: { id: string; name: string; description: string; gender: string; avatar: string; sample: string; language: string }) => {
     const voiceKey = `${voice.id}-${voice.language}`
@@ -194,7 +130,7 @@ export default function OnboardingVoiceSelection() {
     sessionStorage.setItem('selectedVoice', selectedVoice)
     
     // Find voice details
-    const voice = ALL_VOICES.find(v => `${v.id}-${v.language}` === selectedVoice)
+    const voice = VOICES.find(v => `${v.id}-${v.language}` === selectedVoice)
     if (voice) {
       sessionStorage.setItem('selectedVoiceName', voice.name)
       sessionStorage.setItem('selectedVoiceId', voice.id)
@@ -233,30 +169,13 @@ export default function OnboardingVoiceSelection() {
               Elige la voz de tu recepcionista
             </h1>
             <p className="text-lg text-blue-200">
-              Selecciona el idioma y la voz que mejor represente a tu negocio
+              Selecciona la voz que mejor represente a tu negocio
             </p>
           </div>
 
-          {/* Language/Region Tabs */}
-          <div className="flex justify-center gap-4 mb-8">
-            {VOICE_CATEGORIES.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all
-                          ${selectedCategory === category.id
-                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                            : 'bg-white/10 text-blue-200 hover:bg-white/20'}`}
-              >
-                <span className="text-xl">{category.flag}</span>
-                <span>{category.name}</span>
-              </button>
-            ))}
-          </div>
-
           {/* Voice Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-            {currentCategory?.voices.map((voice) => {
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {VOICES.map((voice) => {
               const voiceKey = `${voice.id}-${voice.language}`
               const isSelected = selectedVoice === voiceKey
               const isPlaying = playingVoice === voiceKey
@@ -308,12 +227,12 @@ export default function OnboardingVoiceSelection() {
                     ) : isPlaying ? (
                       <>
                         <Pause className="w-4 h-4" />
-                        {selectedCategory === 'catala' ? 'Reproduint' : 'Reproduciendo'}
+                        Reproduciendo
                       </>
                     ) : (
                       <>
                         <Play className="w-4 h-4" />
-                        {selectedCategory === 'catala' ? 'Escoltar' : 'Escuchar'}
+                        Escuchar
                       </>
                     )}
                   </button>
@@ -335,11 +254,8 @@ export default function OnboardingVoiceSelection() {
           <div className="flex items-start gap-3 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20 mb-8">
             <Volume2 className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-blue-200">
-              <strong>{selectedCategory === 'catala' ? 'Consell:' : 'Consejo:'}</strong>{' '}
-              {selectedCategory === 'catala' 
-                ? "Tria una veu que reflecteixi la personalitat del teu negoci. Una clínica dental pot preferir una veu professional, mentre que un gimnàs pot optar per una més enèrgica."
-                : "Elige una voz que refleje la personalidad de tu negocio. Una clínica dental puede preferir una voz profesional, mientras que un gimnasio puede optar por una más energética."
-              }
+              <strong>Consejo:</strong>{' '}
+              Elige una voz que refleje la personalidad de tu negocio. Una clínica dental puede preferir una voz profesional, mientras que un gimnasio puede optar por una más energética.
             </p>
           </div>
 
@@ -352,7 +268,7 @@ export default function OnboardingVoiceSelection() {
                        text-white font-semibold rounded-xl transition-all"
             >
               <ArrowLeft className="w-5 h-5" />
-              {selectedCategory === 'catala' ? 'Enrere' : 'Atrás'}
+              Atrás
             </button>
             
             <button
@@ -363,7 +279,7 @@ export default function OnboardingVoiceSelection() {
                        text-white font-semibold rounded-xl transition-all
                        hover:scale-[1.02] active:scale-[0.98]"
             >
-              {selectedCategory === 'catala' ? 'Continuar' : 'Continuar'}
+              Continuar
               <ArrowRight className="w-5 h-5" />
             </button>
           </div>
