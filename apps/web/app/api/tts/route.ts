@@ -35,15 +35,16 @@ export async function POST(request: NextRequest) {
     // Use provided voice ID or default
     const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
     
-    // Map language codes to ElevenLabs language codes
-    // ElevenLabs uses ISO 639-1 codes
-    const languageMap: Record<string, string> = {
-      'es-ES': 'es',  // Spanish (Castilian)
-      'es': 'es',     // Spanish (generic)
-      'ca': 'ca',     // Catalan
+    // Map language codes to ElevenLabs language codes (ISO 639-3 for v3)
+    // Catalan requires eleven_v3 model (not supported in v2)
+    // Spanish works with eleven_multilingual_v2
+    const languageMap: Record<string, { code: string; model: string }> = {
+      'es-ES': { code: 'spa', model: 'eleven_multilingual_v2' },  // Spanish (Castilian)
+      'es': { code: 'spa', model: 'eleven_multilingual_v2' },     // Spanish (generic)
+      'ca': { code: 'cat', model: 'eleven_v3' },                  // Catalan (v3 only)
     }
     
-    const languageCode = languageMap[language || 'es-ES'] || 'es'
+    const langConfig = languageMap[language || 'es-ES'] || { code: 'spa', model: 'eleven_multilingual_v2' }
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
       method: 'POST',
@@ -54,8 +55,8 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         text,
-        model_id: 'eleven_multilingual_v2',
-        language_code: languageCode,
+        model_id: langConfig.model,
+        language_code: langConfig.code,
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75,
