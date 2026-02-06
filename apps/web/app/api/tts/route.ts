@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic'
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 
-// Default voice ID - Sarah (professional, clear)
-const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
+// Default voice ID - Pablo (professional Spanish male voice)
+const DEFAULT_VOICE_ID = 'pb3lVZVjdFWbkhPKlelB'
 
 /**
  * Text-to-Speech using ElevenLabs
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
 
     // Use provided voice ID or default
     const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
+    console.log('TTS request - voiceId received:', voiceId, '| using:', selectedVoiceId)
     
     // eleven_multilingual_v2 auto-detects language from text - no language_code needed
     // The model supports: Spanish, English, French, German, Italian, Portuguese, Polish, etc.

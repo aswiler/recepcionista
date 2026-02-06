@@ -98,6 +98,7 @@ export default function InterviewPage() {
   const isRecordingRef = useRef(false)
   const conversationModeRef = useRef(false)
   const vadRunningRef = useRef(false)
+  const selectedVoiceIdRef = useRef<string | null>(null)
 
   // Check for onboarding data and load voice selection
   useEffect(() => {
@@ -126,6 +127,7 @@ export default function InterviewPage() {
     if (voiceId) {
       console.log('🎤 Using ElevenLabs voice:', voiceId)
       setSelectedVoiceId(voiceId)
+      selectedVoiceIdRef.current = voiceId
     } else {
       // Fallback: try to extract from selectedVoice (format: voiceId-language)
       const selectedVoice = sessionStorage.getItem('selectedVoice')
@@ -133,6 +135,7 @@ export default function InterviewPage() {
         const extractedId = selectedVoice.split('-')[0]
         console.log('🎤 Extracted voice ID from selectedVoice:', extractedId)
         setSelectedVoiceId(extractedId)
+        selectedVoiceIdRef.current = extractedId
       }
     }
     
@@ -240,13 +243,17 @@ export default function InterviewPage() {
     setAiSpeaking(true)
     setStatus('speaking')
     
+    // Use ref to ensure we always have the latest voice ID (avoids stale closure issues)
+    const voiceId = selectedVoiceIdRef.current
+    console.log('🔊 Speaking with voice:', voiceId)
+    
     try {
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           text,
-          voiceId: selectedVoiceId,
+          voiceId,
         })
       })
       
