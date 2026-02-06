@@ -2,10 +2,14 @@ import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import Google from 'next-auth/providers/google'
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id'
+import { db } from '@/lib/db'
+import { users } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   // Note: DrizzleAdapter removed to support Edge middleware
   // JWT sessions work without a database adapter
+  // We handle user creation manually in the signIn callback
   session: {
     strategy: 'jwt',
   },
@@ -48,25 +52,69 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           }
         }
         
-        // In production, check against your database:
-        // const user = await db.query.users.findFirst({
-        //   where: eq(users.email, credentials.email)
-        // })
-        // if (user && await bcrypt.compare(credentials.password, user.passwordHash)) {
-        //   return user
-        // }
-        
         return null
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    // Create user in database on first sign-in
+    async signIn({ user, account }) {
+      if (!user.email) return false
+      
+      try {
+        // Check if user already exists
+        const [existingUser] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, user.email))
+          .limit(1)
+        
+        if (!existingUser) {
+          // Create new user
+          const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2)}`
+          await db.insert(users).values({
+            id: userId,
+            email: user.email,
+            name: user.name || null,
+            image: user.image || null,
+          })
+          console.log(`✅ Created new user: ${user.email} (${userId})`)
+          
+          // Store the generated ID for the JWT callback
+          user.id = userId
+        } else {
+          // Update existing user's name/image if changed
+          if (user.name !== existingUser.name || user.image !== existingUser.image) {
+            await db.update(users)
+              .set({ 
+                name: user.name || existingUser.name,
+                image: user.image || existingUser.image,
+                updatedAt: new Date()
+              })
+              .where(eq(users.id, existingUser.id))
+          }
+          
+          // Use existing user's ID
+          user.id = existingUser.id
+          console.log(`✅ Existing user signed in: ${user.email} (${existingUser.id})`)
+        }
+        
+        return true
+      } catch (error) {
+        console.error('Error in signIn callback:', error)
+        // Allow sign-in even if DB fails (user will be created later)
+        return true
+      }
+    },
+    
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id
+        token.email = user.email
       }
       return token
     },
+    
     async session({ session, token }) {
       if (token && session.user) {
         session.user.id = token.id as string
