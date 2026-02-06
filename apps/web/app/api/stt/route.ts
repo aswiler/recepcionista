@@ -27,13 +27,20 @@ export async function POST(request: NextRequest) {
     
     console.log('STT request - audio size:', audioBuffer.length, 'bytes, mimeType:', mimeType || 'not specified')
 
-    // Deepgram can auto-detect format, so we use a generic content type
-    // and let it figure out the codec from the audio data
-    const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=es&punctuate=true&detect_language=true', {
+    // Use Deepgram with auto language detection (don't force Spanish)
+    // This works better when users might speak multiple languages
+    const params = new URLSearchParams({
+      model: 'nova-2',
+      punctuate: 'true',
+      smart_format: 'true',
+      detect_language: 'true', // Auto-detect language
+    })
+    
+    const response = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
       method: 'POST',
       headers: {
         'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-        'Content-Type': 'audio/webm',
+        'Content-Type': mimeType || 'audio/webm',
       },
       body: audioBuffer,
     })
@@ -41,29 +48,6 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error('Deepgram error:', response.status, errorText)
-      
-      // If webm fails, the audio might be in a different format - try with generic type
-      if (response.status === 400) {
-        console.log('Retrying with generic audio type...')
-        const retryResponse = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=es&punctuate=true', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-            'Content-Type': 'application/octet-stream',
-          },
-          body: audioBuffer,
-        })
-        
-        if (retryResponse.ok) {
-          const data = await retryResponse.json()
-          const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
-          console.log('Deepgram transcript (retry):', transcript ? transcript.substring(0, 100) : '(empty)')
-          return NextResponse.json({ text: transcript })
-        }
-        
-        const retryError = await retryResponse.text()
-        console.error('Deepgram retry also failed:', retryResponse.status, retryError)
-      }
       
       return NextResponse.json({ 
         text: '', 
@@ -74,10 +58,20 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json()
     const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
+    const detectedLanguage = data.results?.channels?.[0]?.detected_language || 'unknown'
+    const confidence = data.results?.channels?.[0]?.alternatives?.[0]?.confidence || 0
     
-    console.log('Deepgram transcript:', transcript ? transcript.substring(0, 100) : '(empty)')
+    console.log('Deepgram result:', {
+      transcript: transcript ? transcript.substring(0, 100) : '(empty)',
+      language: detectedLanguage,
+      confidence: confidence.toFixed(2),
+    })
 
-    return NextResponse.json({ text: transcript })
+    return NextResponse.json({ 
+      text: transcript,
+      language: detectedLanguage,
+      confidence,
+    })
   } catch (error) {
     console.error('STT error:', error)
     return NextResponse.json({ text: '', error: String(error) })
