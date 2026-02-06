@@ -89,6 +89,13 @@ export default function InterviewPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [conversationMode, setConversationMode] = useState(false)
+  const [audioLevel, setAudioLevel] = useState(0)
+  const isProcessingRef = useRef(false)
 
   // Check for onboarding data and load voice selection
   useEffect(() => {
@@ -166,6 +173,18 @@ export default function InterviewPage() {
       sessionStorage.setItem('interviewState', JSON.stringify(interviewState))
     }
   }, [interviewState])
+  
+  // Cleanup VAD on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
+    }
+  }, [])
 
   // Start the interview with a smart greeting
   const startInterview = async () => {
@@ -254,6 +273,7 @@ export default function InterviewPage() {
     
     setAiSpeaking(false)
     setStatus('listening')
+    isProcessingRef.current = false
   }
 
   // Browser fallback TTS
@@ -268,7 +288,155 @@ export default function InterviewPage() {
     })
   }
 
-  // Start recording from microphone
+  // Voice Activity Detection - monitor audio levels
+  const startVAD = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      })
+      streamRef.current = stream
+      
+      // Set up audio analysis for VAD
+      const audioContext = new AudioContext()
+      audioContextRef.current = audioContext
+      const analyser = audioContext.createAnalyser()
+      analyserRef.current = analyser
+      analyser.fftSize = 512
+      analyser.smoothingTimeConstant = 0.8
+      
+      const source = audioContext.createMediaStreamSource(stream)
+      source.connect(analyser)
+      
+      // Monitor audio levels
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      let speechStarted = false
+      let silenceStart = 0
+      const SILENCE_THRESHOLD = 15 // Adjust based on testing
+      const SILENCE_DURATION = 1500 // 1.5 seconds of silence to stop
+      const SPEECH_THRESHOLD = 25 // Level to detect speech start
+      
+      const checkAudioLevel = () => {
+        if (!analyserRef.current || isProcessingRef.current) {
+          requestAnimationFrame(checkAudioLevel)
+          return
+        }
+        
+        analyser.getByteFrequencyData(dataArray)
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+        setAudioLevel(average)
+        
+        if (!isRecording && average > SPEECH_THRESHOLD && !speechStarted && !isProcessingRef.current) {
+          // Speech detected - start recording
+          console.log('🎤 Speech detected, starting recording')
+          speechStarted = true
+          silenceStart = 0
+          startRecordingVAD(stream)
+        } else if (isRecording && speechStarted) {
+          if (average < SILENCE_THRESHOLD) {
+            // Silence detected
+            if (silenceStart === 0) {
+              silenceStart = Date.now()
+            } else if (Date.now() - silenceStart > SILENCE_DURATION) {
+              // Enough silence - stop recording
+              console.log('🔇 Silence detected, stopping recording')
+              speechStarted = false
+              silenceStart = 0
+              stopRecordingVAD()
+            }
+          } else {
+            // Still speaking
+            silenceStart = 0
+          }
+        }
+        
+        if (conversationMode) {
+          requestAnimationFrame(checkAudioLevel)
+        }
+      }
+      
+      checkAudioLevel()
+    } catch (error) {
+      console.error('Error starting VAD:', error)
+    }
+  }, [conversationMode, isRecording])
+  
+  // Start recording (for VAD mode - reuses existing stream)
+  const startRecordingVAD = (stream: MediaStream) => {
+    if (isRecording || isProcessingRef.current) return
+    
+    let mimeType = 'audio/webm;codecs=opus'
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'audio/webm'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = ''
+        }
+      }
+    }
+    
+    const options = mimeType ? { mimeType } : undefined
+    const mediaRecorder = new MediaRecorder(stream, options)
+    mediaRecorderRef.current = mediaRecorder
+    audioChunksRef.current = []
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data)
+      }
+    }
+
+    mediaRecorder.onstop = async () => {
+      const actualMimeType = mediaRecorder.mimeType || 'audio/webm'
+      const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType })
+      // Don't stop the stream in VAD mode - keep it running
+      await processAudio(audioBlob)
+    }
+
+    mediaRecorder.start(250)
+    setIsRecording(true)
+  }
+  
+  // Stop recording (for VAD mode)
+  const stopRecordingVAD = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      setStatus('processing')
+    }
+  }
+  
+  // Stop VAD mode completely
+  const stopVAD = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    analyserRef.current = null
+    setConversationMode(false)
+    setAudioLevel(0)
+  }, [])
+  
+  // Toggle conversation mode
+  const toggleConversationMode = async () => {
+    if (conversationMode) {
+      stopVAD()
+    } else {
+      setConversationMode(true)
+      await startVAD()
+    }
+  }
+
+  // Start recording from microphone (manual mode)
   const startRecording = async () => {
     if (isRecording || status === 'processing' || status === 'speaking') return
     
@@ -327,7 +495,7 @@ export default function InterviewPage() {
     }
   }
 
-  // Stop recording
+  // Stop recording (manual mode)
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
@@ -336,7 +504,7 @@ export default function InterviewPage() {
     }
   }
 
-  // Toggle recording
+  // Toggle recording (manual mode)
   const toggleRecording = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault()
     
@@ -352,17 +520,21 @@ export default function InterviewPage() {
   // Process audio: transcribe and get AI response
   const processAudio = useCallback(async (audioBlob: Blob) => {
     setStatus('processing')
+    isProcessingRef.current = true
     
     console.log('🎙️ Audio blob size:', audioBlob.size, 'bytes, type:', audioBlob.type)
     
     // Check if we have any audio data
     if (audioBlob.size < 1000) {
       console.warn('⚠️ Audio blob too small, likely no audio captured')
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        text: 'No se grabó audio. Asegúrate de que el micrófono esté activo y habla después de tocar el botón.' 
-      }])
+      if (!conversationMode) {
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          text: 'No se grabó audio. Asegúrate de que el micrófono esté activo y habla después de tocar el botón.' 
+        }])
+      }
       setStatus('listening')
+      isProcessingRef.current = false
       return
     }
     
@@ -475,8 +647,9 @@ export default function InterviewPage() {
     } catch (error) {
       console.error('Error processing audio:', error)
       setStatus('listening')
+      isProcessingRef.current = false
     }
-  }, [messages, interviewState, extractedInfo])
+  }, [messages, interviewState, extractedInfo, conversationMode])
 
   // Skip interview
   const skipInterview = () => {
@@ -618,15 +791,55 @@ export default function InterviewPage() {
 
               {(status === 'listening' || status === 'processing' || status === 'speaking') && (
                 <div className="flex flex-col items-center gap-4">
+                  {/* Conversation mode toggle */}
+                  <button
+                    onClick={toggleConversationMode}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                      conversationMode
+                        ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                        : 'bg-white/10 text-white/60 border border-white/20 hover:bg-white/20'
+                    }`}
+                  >
+                    {conversationMode ? (
+                      <>
+                        <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        Modo conversación activo
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4" />
+                        Activar modo conversación
+                      </>
+                    )}
+                  </button>
+                  
+                  {/* Audio level indicator (when in conversation mode) */}
+                  {conversationMode && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all duration-75"
+                          style={{ width: `${Math.min(100, audioLevel * 2)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-white/40">
+                        {isRecording ? '🔴' : audioLevel > 20 ? '🎤' : '🔇'}
+                      </span>
+                    </div>
+                  )}
+                  
                   {/* Status indicator */}
                   <div className="flex items-center gap-2 text-sm">
-                    {status === 'listening' && !isRecording && (
+                    {status === 'listening' && !isRecording && !conversationMode && (
                       <span className="text-blue-300">Toca para hablar</span>
+                    )}
+                    {status === 'listening' && !isRecording && conversationMode && (
+                      <span className="text-green-300">Habla cuando quieras...</span>
                     )}
                     {status === 'listening' && isRecording && (
                       <span className="text-red-400 flex items-center gap-2">
                         <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        Grabando... (toca para enviar)
+                        {conversationMode ? 'Escuchando...' : 'Grabando... (toca para enviar)'}
                       </span>
                     )}
                     {status === 'processing' && (
@@ -643,28 +856,30 @@ export default function InterviewPage() {
                     )}
                   </div>
 
-                  {/* Mic button */}
-                  <button
-                    onClick={toggleRecording}
-                    onTouchEnd={toggleRecording}
-                    disabled={status === 'processing' || status === 'speaking'}
-                    className={`p-6 rounded-full transition-all select-none touch-none ${
-                      isRecording
-                        ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/50 animate-pulse'
-                        : status === 'processing' || status === 'speaking'
-                        ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                        : 'bg-blue-500 hover:bg-blue-600 hover:scale-105 shadow-lg shadow-blue-500/30 active:scale-95'
-                    }`}
-                  >
-                    {isRecording ? (
-                      <MicOff className="w-8 h-8 text-white" />
-                    ) : (
-                      <Mic className="w-8 h-8 text-white" />
-                    )}
-                  </button>
+                  {/* Mic button (only shown in manual mode) */}
+                  {!conversationMode && (
+                    <button
+                      onClick={toggleRecording}
+                      onTouchEnd={toggleRecording}
+                      disabled={status === 'processing' || status === 'speaking'}
+                      className={`p-6 rounded-full transition-all select-none touch-none ${
+                        isRecording
+                          ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/50 animate-pulse'
+                          : status === 'processing' || status === 'speaking'
+                          ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                          : 'bg-blue-500 hover:bg-blue-600 hover:scale-105 shadow-lg shadow-blue-500/30 active:scale-95'
+                      }`}
+                    >
+                      {isRecording ? (
+                        <MicOff className="w-8 h-8 text-white" />
+                      ) : (
+                        <Mic className="w-8 h-8 text-white" />
+                      )}
+                    </button>
+                  )}
 
                   <button
-                    onClick={skipInterview}
+                    onClick={() => { stopVAD(); skipInterview(); }}
                     className="text-sm text-white/40 hover:text-white/60 transition"
                   >
                     Terminar entrevista
