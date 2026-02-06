@@ -92,10 +92,12 @@ export default function InterviewPage() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [conversationMode, setConversationMode] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const isProcessingRef = useRef(false)
+  const isRecordingRef = useRef(false)
+  const conversationModeRef = useRef(false)
+  const vadRunningRef = useRef(false)
 
   // Check for onboarding data and load voice selection
   useEffect(() => {
@@ -290,7 +292,13 @@ export default function InterviewPage() {
 
   // Voice Activity Detection - monitor audio levels
   const startVAD = useCallback(async () => {
+    if (vadRunningRef.current) {
+      console.log('VAD already running')
+      return
+    }
+    
     try {
+      console.log('🎙️ Starting VAD...')
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
@@ -300,6 +308,7 @@ export default function InterviewPage() {
         } 
       })
       streamRef.current = stream
+      vadRunningRef.current = true
       
       // Set up audio analysis for VAD
       const audioContext = new AudioContext()
@@ -318,11 +327,14 @@ export default function InterviewPage() {
       let silenceStart = 0
       const SILENCE_THRESHOLD = 15 // Adjust based on testing
       const SILENCE_DURATION = 1500 // 1.5 seconds of silence to stop
-      const SPEECH_THRESHOLD = 25 // Level to detect speech start
+      const SPEECH_THRESHOLD = 20 // Level to detect speech start
+      
+      console.log('🎙️ VAD started, listening for speech...')
       
       const checkAudioLevel = () => {
-        if (!analyserRef.current || isProcessingRef.current) {
-          requestAnimationFrame(checkAudioLevel)
+        // Check if VAD should still be running
+        if (!vadRunningRef.current || !analyserRef.current) {
+          console.log('🛑 VAD stopped')
           return
         }
         
@@ -330,13 +342,19 @@ export default function InterviewPage() {
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length
         setAudioLevel(average)
         
-        if (!isRecording && average > SPEECH_THRESHOLD && !speechStarted && !isProcessingRef.current) {
+        // Skip processing if AI is speaking or we're processing
+        if (isProcessingRef.current) {
+          requestAnimationFrame(checkAudioLevel)
+          return
+        }
+        
+        if (!isRecordingRef.current && average > SPEECH_THRESHOLD && !speechStarted && !isProcessingRef.current) {
           // Speech detected - start recording
-          console.log('🎤 Speech detected, starting recording')
+          console.log('🎤 Speech detected (level:', average.toFixed(1), '), starting recording')
           speechStarted = true
           silenceStart = 0
           startRecordingVAD(stream)
-        } else if (isRecording && speechStarted) {
+        } else if (isRecordingRef.current && speechStarted) {
           if (average < SILENCE_THRESHOLD) {
             // Silence detected
             if (silenceStart === 0) {
@@ -349,25 +367,24 @@ export default function InterviewPage() {
               stopRecordingVAD()
             }
           } else {
-            // Still speaking
+            // Still speaking - reset silence timer
             silenceStart = 0
           }
         }
         
-        if (conversationMode) {
-          requestAnimationFrame(checkAudioLevel)
-        }
+        requestAnimationFrame(checkAudioLevel)
       }
       
       checkAudioLevel()
     } catch (error) {
       console.error('Error starting VAD:', error)
+      vadRunningRef.current = false
     }
-  }, [conversationMode, isRecording])
+  }, [])
   
   // Start recording (for VAD mode - reuses existing stream)
   const startRecordingVAD = (stream: MediaStream) => {
-    if (isRecording || isProcessingRef.current) return
+    if (isRecordingRef.current || isProcessingRef.current) return
     
     let mimeType = 'audio/webm;codecs=opus'
     if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -399,6 +416,7 @@ export default function InterviewPage() {
     }
 
     mediaRecorder.start(250)
+    isRecordingRef.current = true
     setIsRecording(true)
   }
   
@@ -406,6 +424,7 @@ export default function InterviewPage() {
   const stopRecordingVAD = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
+      isRecordingRef.current = false
       setIsRecording(false)
       setStatus('processing')
     }
@@ -413,6 +432,10 @@ export default function InterviewPage() {
   
   // Stop VAD mode completely
   const stopVAD = useCallback(() => {
+    console.log('🛑 Stopping VAD...')
+    vadRunningRef.current = false
+    conversationModeRef.current = false
+    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
       streamRef.current = null
@@ -432,6 +455,7 @@ export default function InterviewPage() {
       stopVAD()
     } else {
       setConversationMode(true)
+      conversationModeRef.current = true
       await startVAD()
     }
   }
@@ -487,6 +511,7 @@ export default function InterviewPage() {
 
       // Request data every 250ms to ensure we capture chunks
       mediaRecorder.start(250)
+      isRecordingRef.current = true
       setIsRecording(true)
       setStatus('listening')
     } catch (error) {
@@ -499,6 +524,7 @@ export default function InterviewPage() {
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
+      isRecordingRef.current = false
       setIsRecording(false)
       setStatus('processing')
     }
