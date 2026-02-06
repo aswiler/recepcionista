@@ -325,9 +325,11 @@ export default function InterviewPage() {
       const dataArray = new Uint8Array(analyser.frequencyBinCount)
       let speechStarted = false
       let silenceStart = 0
+      let recordingStartTime = 0
       const SILENCE_THRESHOLD = 15 // Adjust based on testing
-      const SILENCE_DURATION = 1500 // 1.5 seconds of silence to stop
+      const SILENCE_DURATION = 1200 // 1.2 seconds of silence to stop
       const SPEECH_THRESHOLD = 20 // Level to detect speech start
+      const MIN_RECORDING_DURATION = 800 // Minimum 0.8 seconds of recording
       
       console.log('🎙️ VAD started, listening for speech...')
       
@@ -353,15 +355,18 @@ export default function InterviewPage() {
           console.log('🎤 Speech detected (level:', average.toFixed(1), '), starting recording')
           speechStarted = true
           silenceStart = 0
+          recordingStartTime = Date.now()
           startRecordingVAD(stream)
         } else if (isRecordingRef.current && speechStarted) {
+          const recordingDuration = Date.now() - recordingStartTime
+          
           if (average < SILENCE_THRESHOLD) {
             // Silence detected
             if (silenceStart === 0) {
               silenceStart = Date.now()
-            } else if (Date.now() - silenceStart > SILENCE_DURATION) {
-              // Enough silence - stop recording
-              console.log('🔇 Silence detected, stopping recording')
+            } else if (Date.now() - silenceStart > SILENCE_DURATION && recordingDuration > MIN_RECORDING_DURATION) {
+              // Enough silence AND minimum recording duration met - stop recording
+              console.log('🔇 Silence detected after', recordingDuration, 'ms, stopping recording')
               speechStarted = false
               silenceStart = 0
               stopRecordingVAD()
@@ -601,13 +606,16 @@ export default function InterviewPage() {
       }
 
       if (!userText) {
-        console.log('⚠️ No text detected from speech')
-        // Add a message to inform the user
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          text: 'No pude escucharte bien. ¿Puedes hablar más cerca del micrófono e intentarlo de nuevo?' 
-        }])
+        console.log('⚠️ No text detected from speech, audio size was:', audioBlob.size, 'bytes')
+        // Only show error in manual mode - in conversation mode, just keep listening
+        if (!conversationMode) {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            text: 'No pude escucharte bien. ¿Puedes hablar más cerca del micrófono e intentarlo de nuevo?' 
+          }])
+        }
         setStatus('listening')
+        isProcessingRef.current = false
         return
       }
 
