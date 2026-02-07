@@ -214,19 +214,9 @@ function LoginContent() {
           {/* Sign up link */}
           <div className="px-8 py-5 bg-white/5 border-t border-white/10 text-center">
             <p className="text-slate-400">
-              ¿No tienes cuenta?{' '}
-              <Link href="/onboarding" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                Empieza gratis
-              </Link>
+              ¿No tienes cuenta? Usa Google o Microsoft para crear una.
             </p>
           </div>
-        </div>
-
-        {/* Demo credentials hint */}
-        <div className="mt-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-          <p className="text-sm text-amber-300 text-center">
-            <strong>Demo:</strong> demo@recepcionista.com / demo123
-          </p>
         </div>
 
         {/* Footer */}

@@ -8,8 +8,6 @@ import {
   Calendar, 
   ArrowRight, 
   Check, 
-  Mic, 
-  MicOff,
   Volume2,
   Play,
   Pause,
@@ -154,7 +152,7 @@ function HeroSection() {
             <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
               <Play className="w-4 h-4 ml-0.5" />
             </div>
-            Probar demo en vivo
+            Escuchar demo
           </a>
         </div>
 
@@ -186,151 +184,111 @@ function HeroSection() {
 }
 
 function DemoSection() {
-  const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'speaking'>('idle')
-  const [isRecording, setIsRecording] = useState(false)
-  const [messages, setMessages] = useState<{ role: 'ai' | 'user'; text: string }[]>([])
-  const [aiSpeaking, setAiSpeaking] = useState(false)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  const startDemo = async () => {
-    setStatus('connecting')
-    
-    // Simulate connection
-    await new Promise(r => setTimeout(r, 1000))
-    
-    const greeting = "¡Hola! Soy la recepcionista AI de Recepcionista.com. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre nuestros servicios, agendar una cita, o lo que necesites."
-    setMessages([{ role: 'ai', text: greeting }])
-    setStatus('active')
-    
-    // Speak greeting
-    await speakText(greeting)
-  }
+  // Sample conversation transcript
+  const transcript = [
+    { time: 0, role: 'ai' as const, text: "Clínica Dental García, buenas tardes. ¿En qué puedo ayudarle?" },
+    { time: 5, role: 'customer' as const, text: "Hola, quería pedir una cita para una limpieza dental." },
+    { time: 10, role: 'ai' as const, text: "Por supuesto. ¿Tiene preferencia de día y hora?" },
+    { time: 15, role: 'customer' as const, text: "Sí, si puede ser el jueves por la tarde." },
+    { time: 20, role: 'ai' as const, text: "Perfecto. Tengo disponible el jueves a las 17:00 o a las 18:30. ¿Cuál le viene mejor?" },
+    { time: 28, role: 'customer' as const, text: "A las 17:00 está bien." },
+    { time: 32, role: 'ai' as const, text: "Excelente. Le confirmo: cita para limpieza dental el jueves a las 17:00. ¿Me puede dar su nombre?" },
+    { time: 40, role: 'customer' as const, text: "María López." },
+    { time: 43, role: 'ai' as const, text: "Perfecto, María. Queda reservada su cita. Le enviaremos un recordatorio por WhatsApp. ¿Algo más en lo que pueda ayudarle?" },
+    { time: 52, role: 'customer' as const, text: "No, eso es todo. Gracias." },
+    { time: 55, role: 'ai' as const, text: "Gracias a usted. ¡Hasta el jueves!" },
+  ]
 
-  const speakText = async (text: string) => {
-    setAiSpeaking(true)
-    setStatus('speaking')
+  useEffect(() => {
+    // Create audio element
+    const audio = new Audio('/demo-call.mp3') // Placeholder - replace with actual audio file
+    audioRef.current = audio
     
-    try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+    audio.addEventListener('loadedmetadata', () => {
+      setDuration(audio.duration || 60) // Default to 60s if no audio
+    })
+    
+    audio.addEventListener('timeupdate', () => {
+      setCurrentTime(audio.currentTime)
+    })
+    
+    audio.addEventListener('ended', () => {
+      setIsPlaying(false)
+      setCurrentTime(0)
+    })
+
+    // Set default duration if audio doesn't load
+    setDuration(60)
+    
+    return () => {
+      audio.pause()
+      audio.src = ''
+    }
+  }, [])
+
+  const togglePlay = () => {
+    if (!audioRef.current) return
+    
+    if (isPlaying) {
+      audioRef.current.pause()
+    } else {
+      audioRef.current.play().catch(() => {
+        // If audio file doesn't exist, simulate playback
+        simulatePlayback()
       })
-      
-      if (response.ok) {
-        const audioBlob = await response.blob()
-        const audioUrl = URL.createObjectURL(audioBlob)
-        const audio = new Audio(audioUrl)
-        
-        await new Promise<void>((resolve) => {
-          audio.onended = () => resolve()
-          audio.onerror = () => resolve()
-          audio.play().catch(() => resolve())
-        })
-      } else {
-        // Browser fallback
-        const utterance = new SpeechSynthesisUtterance(text)
-        utterance.lang = 'es-ES'
-        speechSynthesis.speak(utterance)
-        await new Promise(r => setTimeout(r, text.length * 50))
-      }
-    } catch {
-      // Silent fallback
     }
-    
-    setAiSpeaking(false)
-    setStatus('active')
+    setIsPlaying(!isPlaying)
   }
 
-  const startRecording = async () => {
-    if (status !== 'active') return
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
-      }
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        stream.getTracks().forEach(t => t.stop())
-        await processAudio(audioBlob)
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-    } catch {
-      alert('Por favor permite el acceso al micrófono para usar el demo.')
-    }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
-  }
-
-  const processAudio = async (audioBlob: Blob) => {
-    const reader = new FileReader()
-    const base64Audio = await new Promise<string>((resolve) => {
-      reader.onloadend = () => resolve((reader.result as string).split(',')[1])
-      reader.readAsDataURL(audioBlob)
-    })
-
-    // STT
-    const sttRes = await fetch('/api/stt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio: base64Audio })
-    })
-
-    let userText = ''
-    if (sttRes.ok) {
-      const data = await sttRes.json()
-      userText = data.text || ''
-    }
-
-    if (!userText) return
-
-    setMessages(prev => [...prev, { role: 'user', text: userText }])
-
-    // Get AI response
-    const chatRes = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [...messages, { role: 'user', text: userText }],
-        topic: 'demo'
+  const simulatePlayback = () => {
+    // Simulate audio playback for demo when no audio file exists
+    const interval = setInterval(() => {
+      setCurrentTime(prev => {
+        if (prev >= 60) {
+          clearInterval(interval)
+          setIsPlaying(false)
+          return 0
+        }
+        return prev + 0.1
       })
-    })
+    }, 100)
+  }
 
-    if (chatRes.ok) {
-      const data = await chatRes.json()
-      const aiText = data.text || 'Lo siento, no entendí. ¿Puedes repetir?'
-      setMessages(prev => [...prev, { role: 'ai', text: aiText }])
-      await speakText(aiText)
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value)
+    setCurrentTime(time)
+    if (audioRef.current) {
+      audioRef.current.currentTime = time
     }
   }
+
+  // Get current visible messages based on playback time
+  const visibleMessages = transcript.filter(msg => msg.time <= currentTime)
 
   return (
     <section id="demo" className="py-24 bg-gradient-to-b from-slate-50 to-white relative">
       <div className="max-w-6xl mx-auto px-6">
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-100 text-sky-700 text-sm font-medium mb-4">
-            <Mic className="w-4 h-4" />
-            Demo interactivo
+            <Volume2 className="w-4 h-4" />
+            Escucha una llamada real
           </div>
           <h2 className="text-4xl sm:text-5xl font-bold text-slate-900">
-            Habla con tu recepcionista
+            Así suena tu recepcionista
           </h2>
           <p className="mt-4 text-xl text-slate-600 max-w-2xl mx-auto">
-            Prueba ahora mismo cómo suena. Sin registro, sin compromisos.
+            Una conversación real entre un cliente y nuestra AI
           </p>
         </div>
 
@@ -344,120 +302,106 @@ function DemoSection() {
                   <Phone className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="text-white font-semibold">Recepcionista AI</div>
-                  <div className="text-slate-400 text-sm">
-                    {status === 'idle' && 'Listo para llamar'}
-                    {status === 'connecting' && 'Conectando...'}
-                    {status === 'active' && 'En línea'}
-                    {status === 'speaking' && 'Hablando...'}
-                  </div>
+                  <div className="text-white font-semibold">Clínica Dental García</div>
+                  <div className="text-slate-400 text-sm">Llamada de ejemplo</div>
                 </div>
               </div>
-              {(status === 'active' || status === 'speaking') && (
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-green-400 text-sm">Activo</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`} />
+                <span className={`text-sm ${isPlaying ? 'text-green-400' : 'text-slate-400'}`}>
+                  {isPlaying ? 'Reproduciendo' : 'En pausa'}
+                </span>
+              </div>
             </div>
 
-            {/* Messages */}
+            {/* Transcript */}
             <div className="h-80 overflow-y-auto p-6 bg-slate-50">
-              {status === 'idle' ? (
+              {visibleMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center">
                   <div className="w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center mb-4">
-                    <Phone className="w-10 h-10 text-sky-600" />
+                    <Play className="w-10 h-10 text-sky-600 ml-1" />
                   </div>
                   <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                    ¿Listo para probar?
+                    Escucha la conversación
                   </h3>
-                  <p className="text-slate-600 mb-6 max-w-sm">
-                    Haz clic en "Iniciar demo" y mantén presionado el micrófono para hablar
+                  <p className="text-slate-600 max-w-sm">
+                    Pulsa play para escuchar cómo tu recepcionista AI atiende una llamada
                   </p>
-                  <button
-                    onClick={startDemo}
-                    className="px-8 py-3 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-full transition-all hover:scale-105 shadow-lg shadow-sky-500/30"
-                  >
-                    Iniciar demo
-                  </button>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {messages.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {visibleMessages.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'customer' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-                        msg.role === 'user' 
+                        msg.role === 'customer' 
                           ? 'bg-sky-500 text-white' 
                           : 'bg-white shadow-sm border border-slate-200 text-slate-800'
                       }`}>
-                        {msg.text}
-                      </div>
-                    </div>
-                  ))}
-                  {aiSpeaking && (
-                    <div className="flex justify-start">
-                      <div className="px-4 py-3 rounded-2xl bg-white shadow-sm border border-slate-200">
-                        <div className="flex items-center gap-1">
-                          {[0, 1, 2, 3, 4].map((i) => (
-                            <div
-                              key={i}
-                              className="w-1 bg-sky-500 rounded-full"
-                              style={{
-                                height: '16px',
-                                animation: 'speaking 0.5s ease-in-out infinite',
-                                animationDelay: `${i * 0.1}s`
-                              }}
-                            />
-                          ))}
+                        <div className="flex items-start gap-2">
+                          {msg.role === 'ai' && (
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <Phone className="w-3 h-3 text-white" />
+                            </div>
+                          )}
+                          <span>{msg.text}</span>
                         </div>
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* Controls */}
-            {status !== 'idle' && (
-              <div className="p-6 border-t border-slate-200 bg-white">
-                <div className="flex flex-col items-center gap-4">
-                  <p className="text-sm text-slate-500">
-                    {isRecording ? '🔴 Grabando... suelta para enviar' : 'Mantén presionado para hablar'}
-                  </p>
+            {/* Audio Controls */}
+            <div className="p-6 border-t border-slate-200 bg-white">
+              <div className="flex flex-col gap-4">
+                {/* Progress bar */}
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-500 w-10">{formatTime(currentTime)}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={duration}
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="flex-1 h-2 bg-slate-200 rounded-full appearance-none cursor-pointer
+                             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 
+                             [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-sky-500 
+                             [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer
+                             [&::-webkit-slider-thumb]:shadow-lg"
+                    style={{
+                      background: `linear-gradient(to right, #0ea5e9 0%, #0ea5e9 ${(currentTime / duration) * 100}%, #e2e8f0 ${(currentTime / duration) * 100}%, #e2e8f0 100%)`
+                    }}
+                  />
+                  <span className="text-sm text-slate-500 w-10">{formatTime(duration)}</span>
+                </div>
+                
+                {/* Play button */}
+                <div className="flex justify-center">
                   <button
-                    onMouseDown={startRecording}
-                    onMouseUp={stopRecording}
-                    onTouchStart={startRecording}
-                    onTouchEnd={stopRecording}
-                    disabled={status === 'speaking'}
-                    className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
-                      isRecording 
-                        ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/50' 
-                        : status === 'speaking'
-                        ? 'bg-slate-200 cursor-not-allowed'
-                        : 'bg-sky-500 hover:bg-sky-600 hover:scale-105 shadow-lg shadow-sky-500/30'
-                    }`}
+                    onClick={togglePlay}
+                    className="w-14 h-14 rounded-full bg-sky-500 hover:bg-sky-600 flex items-center justify-center transition-all hover:scale-105 shadow-lg shadow-sky-500/30"
                   >
-                    {isRecording ? (
-                      <MicOff className="w-7 h-7 text-white" />
+                    {isPlaying ? (
+                      <Pause className="w-6 h-6 text-white" />
                     ) : (
-                      <Mic className="w-7 h-7 text-white" />
+                      <Play className="w-6 h-6 text-white ml-0.5" />
                     )}
                   </button>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Trust badges */}
           <div className="mt-8 flex items-center justify-center gap-6 text-sm text-slate-500">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4" />
-              <span>Audio seguro</span>
+              <span>Voz 100% AI</span>
             </div>
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              <span>Respuesta instantánea</span>
+              <Clock className="w-4 h-4" />
+              <span>Respuesta {"<2s"}</span>
             </div>
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4" />
@@ -824,7 +768,7 @@ function CTASection() {
             href="#demo"
             className="px-8 py-4 text-white font-medium border-2 border-white/30 rounded-full hover:bg-white/10 transition"
           >
-            Ver demo primero
+            Escuchar demo
           </a>
         </div>
       </div>

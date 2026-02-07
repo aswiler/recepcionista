@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, ArrowRight, Loader2, User, Mail, Globe, Briefcase } from 'lucide-react'
+import { Building2, ArrowRight, Loader2, Globe, Briefcase } from 'lucide-react'
 
 const INDUSTRIES = [
   { value: 'real-estate', label: 'Inmobiliaria' },
@@ -22,8 +22,6 @@ export default function OnboardingStep1() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    fullName: '',
-    email: '',
     businessName: '',
     industry: '',
     websiteUrl: '',
@@ -33,14 +31,6 @@ export default function OnboardingStep1() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
     
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Tu nombre es requerido'
-    }
-    if (!formData.email.trim()) {
-      newErrors.email = 'El email es requerido'
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Introduce un email válido'
-    }
     if (!formData.businessName.trim()) {
       newErrors.businessName = 'El nombre de tu negocio es requerido'
     }
@@ -142,48 +132,6 @@ export default function OnboardingStep1() {
           {/* Form */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Full Name */}
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-2">
-                  Tu nombre completo *
-                </label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
-                  <input
-                    type="text"
-                    value={formData.fullName}
-                    onChange={(e) => handleChange('fullName', e.target.value)}
-                    placeholder="María García"
-                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
-                             text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
-                             focus:ring-blue-500 focus:border-transparent
-                             ${errors.fullName ? 'border-red-500' : 'border-white/20'}`}
-                  />
-                </div>
-                {errors.fullName && <p className="mt-1 text-sm text-red-400">{errors.fullName}</p>}
-              </div>
-
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-2">
-                  Email *
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    placeholder="maria@tuempresa.com"
-                    className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl 
-                             text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 
-                             focus:ring-blue-500 focus:border-transparent
-                             ${errors.email ? 'border-red-500' : 'border-white/20'}`}
-                  />
-                </div>
-                {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email}</p>}
-              </div>
-
               {/* Business Name */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-2">

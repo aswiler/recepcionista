@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession, signIn } from 'next-auth/react'
 import { 
   Check, 
   Edit2, 
@@ -23,7 +24,6 @@ import {
   Volume2,
   Loader2
 } from 'lucide-react'
-import TestCallModal from '@/app/components/TestCallModal'
 
 interface ServiceDetail {
   name: string
@@ -40,8 +40,6 @@ interface FAQ {
 }
 
 interface OnboardingData {
-  fullName: string
-  email: string
   businessName: string
   industry: string
   websiteUrl: string
@@ -71,13 +69,14 @@ interface LearnedInfo {
 
 export default function OnboardingCompletePage() {
   const router = useRouter()
+  const { data: session, status } = useSession()
   const [info, setInfo] = useState<LearnedInfo>({})
   const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
   const [selectedVoice, setSelectedVoice] = useState<{ id: string; name: string } | null>(null)
   const [editingSection, setEditingSection] = useState<string | null>(null)
   const [expandedFaqs, setExpandedFaqs] = useState<Set<number>>(new Set([0, 1, 2]))
   const [isSaving, setIsSaving] = useState(false)
-  const [showTestCallModal, setShowTestCallModal] = useState(false)
+  const [showWebTest, setShowWebTest] = useState(false)
 
   useEffect(() => {
     // Load onboarding data (from step 1)
@@ -229,10 +228,6 @@ export default function OnboardingCompletePage() {
     })
   }
 
-  const startTestCall = () => {
-    setShowTestCallModal(true)
-  }
-
   const goToDashboard = async () => {
     setIsSaving(true)
     
@@ -242,11 +237,7 @@ export default function OnboardingCompletePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // User info
-          fullName: onboardingData?.fullName,
-          email: onboardingData?.email,
-          
-          // Business info
+          // Business info (user name/email comes from OAuth session)
           businessName: onboardingData?.businessName || info.businessName,
           industry: onboardingData?.industry || info.businessType,
           website: onboardingData?.websiteUrl,
@@ -265,24 +256,29 @@ export default function OnboardingCompletePage() {
       })
 
       if (!response.ok) {
-        console.error('Failed to save onboarding data')
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to save onboarding data:', errorData)
+        alert('Error al guardar los datos. Por favor, inténtalo de nuevo.')
+        setIsSaving(false)
+        return
       }
 
-      // Clear session storage
+      // Success! Clear session storage
       sessionStorage.removeItem('onboardingData')
       sessionStorage.removeItem('scrapedData')
       sessionStorage.removeItem('selectedVoice')
+      sessionStorage.removeItem('selectedVoiceId')
       sessionStorage.removeItem('selectedVoiceName')
+      sessionStorage.removeItem('selectedVoiceLanguage')
       sessionStorage.removeItem('interviewMessages')
+      sessionStorage.removeItem('interviewState')
       sessionStorage.removeItem('learnedInfo')
 
       // Go to dashboard
       router.push('/dashboard')
     } catch (error) {
       console.error('Error saving onboarding data:', error)
-      // Still navigate even if save fails
-      router.push('/dashboard')
-    } finally {
+      alert('Error de conexión. Por favor, inténtalo de nuevo.')
       setIsSaving(false)
     }
   }
@@ -622,45 +618,105 @@ export default function OnboardingCompletePage() {
         </div>
 
         {/* Actions */}
-        <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="mt-12 flex flex-col items-center gap-6">
+          {/* Web-based test call */}
           <button
-            onClick={startTestCall}
+            onClick={() => setShowWebTest(true)}
             className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 
                      text-white font-semibold rounded-full transition-all w-full sm:w-auto
                      justify-center"
           >
-            <Phone className="w-5 h-5" />
-            Hacer llamada de prueba
+            <Mic className="w-5 h-5" />
+            Probar tu recepcionista
           </button>
           
-          <button
-            onClick={goToDashboard}
-            disabled={isSaving}
-            className="flex items-center gap-3 px-8 py-4 bg-white/10 hover:bg-white/20 
-                     text-white font-semibold rounded-full transition-all w-full sm:w-auto
-                     justify-center border border-white/20 disabled:opacity-50"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Guardando...
-              </>
-            ) : (
-              <>
-                Ir al dashboard
-                <ArrowRight className="w-5 h-5" />
-              </>
-            )}
-          </button>
+          {/* Auth section - show OAuth buttons or dashboard button */}
+          {status === 'unauthenticated' ? (
+            <div className="w-full max-w-md p-6 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20">
+              <h3 className="text-lg font-semibold text-white text-center mb-4">
+                Guarda tu recepcionista
+              </h3>
+              <div className="space-y-3">
+                <button
+                  onClick={() => signIn('google', { callbackUrl: '/onboarding/complete' })}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-white hover:bg-gray-100 
+                           text-gray-800 font-medium rounded-xl transition-all"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Continuar con Google
+                </button>
+                <button
+                  onClick={() => signIn('microsoft-entra-id', { callbackUrl: '/onboarding/complete' })}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-[#2F2F2F] hover:bg-[#3F3F3F] 
+                           text-white font-medium rounded-xl transition-all"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 21 21">
+                    <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                  </svg>
+                  Continuar con Microsoft
+                </button>
+              </div>
+              <p className="text-blue-300/60 text-sm text-center mt-4">
+                Tu progreso se guardará automáticamente
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={goToDashboard}
+              disabled={isSaving || status === 'loading'}
+              className="flex items-center gap-3 px-8 py-4 bg-blue-500 hover:bg-blue-600 
+                       text-white font-semibold rounded-full transition-all w-full sm:w-auto
+                       justify-center disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Guardando...
+                </>
+              ) : status === 'loading' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Verificando...
+                </>
+              ) : (
+                <>
+                  Guardar e ir al dashboard
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
       
-      {/* Test Call Modal */}
-      <TestCallModal
-        isOpen={showTestCallModal}
-        onClose={() => setShowTestCallModal(false)}
-        businessName={info.businessName || onboardingData?.businessName}
-      />
+      {/* Web Test Modal - TODO: implement web-based voice test */}
+      {showWebTest && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold text-white mb-4">Probar tu recepcionista</h3>
+            <p className="text-blue-200 mb-6">
+              Habla con tu recepcionista AI usando el micrófono de tu navegador.
+            </p>
+            <p className="text-yellow-300 text-sm mb-4">
+              (Próximamente - Esta función está en desarrollo)
+            </p>
+            <button
+              onClick={() => setShowWebTest(false)}
+              className="w-full py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

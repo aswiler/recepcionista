@@ -21,8 +21,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const {
-      fullName,
-      email,
       businessName,
       industry,
       website,
@@ -35,12 +33,7 @@ export async function POST(request: NextRequest) {
       differentiators,
     } = body
 
-    // Update user name if provided
-    if (fullName) {
-      await db.update(users)
-        .set({ name: fullName, updatedAt: new Date() })
-        .where(eq(users.id, session.user.id))
-    }
+    // User name/email comes from OAuth session, no need to update here
 
     // Check if business already exists for this user
     const [existingBusiness] = await db
