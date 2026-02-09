@@ -99,6 +99,9 @@ export default function InterviewPage() {
   const conversationModeRef = useRef(false)
   const vadRunningRef = useRef(false)
   const selectedVoiceIdRef = useRef<string | null>(null)
+  // Reference to current audio element for barge-in support
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const aiSpeakingRef = useRef(false)
 
   // Check for onboarding data and load voice selection
   useEffect(() => {
@@ -238,9 +241,26 @@ export default function InterviewPage() {
     setStatus('listening')
   }
 
+  // Stop AI speech (for barge-in)
+  const stopAiSpeech = useCallback(() => {
+    if (currentAudioRef.current) {
+      console.log('🛑 Barge-in: stopping AI speech')
+      currentAudioRef.current.pause()
+      currentAudioRef.current.currentTime = 0
+      currentAudioRef.current = null
+    }
+    // Also stop browser TTS if active
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel()
+    }
+    setAiSpeaking(false)
+    aiSpeakingRef.current = false
+  }, [])
+
   // Text-to-speech using ElevenLabs with selected voice
   const speakText = async (text: string) => {
     setAiSpeaking(true)
+    aiSpeakingRef.current = true
     setStatus('speaking')
     
     // Use ref to ensure we always have the latest voice ID (avoids stale closure issues)
@@ -262,16 +282,24 @@ export default function InterviewPage() {
         const audioUrl = URL.createObjectURL(audioBlob)
         const audio = new Audio(audioUrl)
         
+        // Store reference for barge-in support
+        currentAudioRef.current = audio
+        
         await new Promise<void>((resolve) => {
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl)
+            currentAudioRef.current = null
             resolve()
           }
           audio.onerror = () => {
             URL.revokeObjectURL(audioUrl)
+            currentAudioRef.current = null
             resolve()
           }
-          audio.play().catch(() => resolve())
+          audio.play().catch(() => {
+            currentAudioRef.current = null
+            resolve()
+          })
         })
       } else {
         await browserTTS(text)
@@ -281,6 +309,7 @@ export default function InterviewPage() {
     }
     
     setAiSpeaking(false)
+    aiSpeakingRef.current = false
     setStatus('listening')
     isProcessingRef.current = false
   }
@@ -306,12 +335,15 @@ export default function InterviewPage() {
     
     try {
       console.log('🎙️ Starting VAD...')
+      // Optimized audio constraints for speech recognition
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
-          sampleRate: 16000,
+          sampleRate: 48000,            // Higher sample rate for better quality
+          sampleSize: 16,               // 16-bit audio
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,        // Normalize volume levels
         } 
       })
       streamRef.current = stream
@@ -322,23 +354,26 @@ export default function InterviewPage() {
       audioContextRef.current = audioContext
       const analyser = audioContext.createAnalyser()
       analyserRef.current = analyser
-      analyser.fftSize = 512
-      analyser.smoothingTimeConstant = 0.8
+      analyser.fftSize = 1024           // Higher FFT for better frequency resolution
+      analyser.smoothingTimeConstant = 0.85
       
       const source = audioContext.createMediaStreamSource(stream)
       source.connect(analyser)
       
-      // Monitor audio levels
+      // Monitor audio levels with optimized thresholds for conversational speech
       const dataArray = new Uint8Array(analyser.frequencyBinCount)
       let speechStarted = false
       let silenceStart = 0
       let recordingStartTime = 0
-      const SILENCE_THRESHOLD = 15 // Adjust based on testing
-      const SILENCE_DURATION = 1200 // 1.2 seconds of silence to stop
-      const SPEECH_THRESHOLD = 20 // Level to detect speech start
-      const MIN_RECORDING_DURATION = 800 // Minimum 0.8 seconds of recording
       
-      console.log('🎙️ VAD started, listening for speech...')
+      // OPTIMIZED THRESHOLDS for better conversational experience:
+      const SILENCE_THRESHOLD = 12       // Lower = more sensitive to silence (was 15)
+      const SILENCE_DURATION = 1800      // 1.8 seconds of silence to stop (was 1.2) - allows natural pauses
+      const SPEECH_THRESHOLD = 18        // Level to detect speech start (was 20) - more sensitive
+      const MIN_RECORDING_DURATION = 1500 // 1.5 seconds minimum (was 0.8) - captures fuller sentences
+      const BARGE_IN_THRESHOLD = 25      // Higher threshold for barge-in to avoid false triggers
+      
+      console.log('🎙️ VAD started with barge-in support, listening for speech...')
       
       const checkAudioLevel = () => {
         // Check if VAD should still be running
@@ -351,13 +386,27 @@ export default function InterviewPage() {
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length
         setAudioLevel(average)
         
-        // Skip processing if AI is speaking or we're processing
+        // BARGE-IN SUPPORT: If AI is speaking and user starts talking loudly, interrupt
+        if (aiSpeakingRef.current && average > BARGE_IN_THRESHOLD && !isRecordingRef.current) {
+          console.log('🚨 Barge-in detected (level:', average.toFixed(1), '), interrupting AI')
+          stopAiSpeech()
+          // Start recording the user's interruption
+          speechStarted = true
+          silenceStart = 0
+          recordingStartTime = Date.now()
+          isProcessingRef.current = false
+          startRecordingVAD(stream)
+          requestAnimationFrame(checkAudioLevel)
+          return
+        }
+        
+        // Skip if we're processing a response (but not if AI is speaking - allow barge-in)
         if (isProcessingRef.current) {
           requestAnimationFrame(checkAudioLevel)
           return
         }
         
-        if (!isRecordingRef.current && average > SPEECH_THRESHOLD && !speechStarted && !isProcessingRef.current) {
+        if (!isRecordingRef.current && average > SPEECH_THRESHOLD && !speechStarted && !isProcessingRef.current && !aiSpeakingRef.current) {
           // Speech detected - start recording
           console.log('🎤 Speech detected (level:', average.toFixed(1), '), starting recording')
           speechStarted = true
@@ -392,7 +441,7 @@ export default function InterviewPage() {
       console.error('Error starting VAD:', error)
       vadRunningRef.current = false
     }
-  }, [])
+  }, [stopAiSpeech])
   
   // Start recording (for VAD mode - reuses existing stream)
   const startRecordingVAD = (stream: MediaStream) => {
@@ -427,7 +476,8 @@ export default function InterviewPage() {
       await processAudio(audioBlob)
     }
 
-    mediaRecorder.start(250)
+    // Capture audio in 100ms chunks for smoother recording
+    mediaRecorder.start(100)
     isRecordingRef.current = true
     setIsRecording(true)
   }
@@ -477,12 +527,15 @@ export default function InterviewPage() {
     if (isRecording || status === 'processing' || status === 'speaking') return
     
     try {
+      // Optimized audio constraints for speech recognition
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
-          sampleRate: 16000,
+          sampleRate: 48000,            // Higher sample rate for better quality
+          sampleSize: 16,               // 16-bit audio
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,        // Normalize volume levels
         } 
       })
       
@@ -521,8 +574,8 @@ export default function InterviewPage() {
         await processAudio(audioBlob)
       }
 
-      // Request data every 250ms to ensure we capture chunks
-      mediaRecorder.start(250)
+      // Request data every 100ms to ensure we capture chunks smoothly
+      mediaRecorder.start(100)
       isRecordingRef.current = true
       setIsRecording(true)
       setStatus('listening')

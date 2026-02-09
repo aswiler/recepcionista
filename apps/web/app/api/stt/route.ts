@@ -4,7 +4,7 @@ const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY
 
 /**
  * Speech-to-Text using Deepgram
- * Converts audio to text for the browser-based interview
+ * Optimized for Spanish conversational speech with high accuracy
  */
 export async function POST(request: NextRequest) {
   try {
@@ -27,13 +27,20 @@ export async function POST(request: NextRequest) {
     
     console.log('STT request - audio size:', audioBuffer.length, 'bytes, mimeType:', mimeType || 'not specified')
 
-    // Use Deepgram with auto language detection (don't force Spanish)
-    // This works better when users might speak multiple languages
+    // Optimized Deepgram settings for Spanish conversational speech:
+    // - Use nova-2-general for better accuracy with conversational speech
+    // - Force Spanish (es) for better recognition of Spanish speakers
+    // - Enable utterances for natural sentence boundaries
+    // - Disable diarize since it's single speaker
+    // - Use filler_words to capture more natural speech
     const params = new URLSearchParams({
-      model: 'nova-2',
+      model: 'nova-2-general',
+      language: 'es',              // Force Spanish for better accuracy
       punctuate: 'true',
       smart_format: 'true',
-      detect_language: 'true', // Auto-detect language
+      utterances: 'true',          // Better sentence boundary detection
+      filler_words: 'true',        // Capture "eh", "um", etc. (helps with full transcription)
+      numerals: 'true',            // Better number handling
     })
     
     const response = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
@@ -57,20 +64,30 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json()
-    const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
-    const detectedLanguage = data.results?.channels?.[0]?.detected_language || 'unknown'
+    
+    // Get transcript - prefer utterances if available for better sentence structure
+    let transcript = ''
+    if (data.results?.utterances?.length > 0) {
+      // Combine all utterances for complete transcript
+      transcript = data.results.utterances.map((u: { transcript: string }) => u.transcript).join(' ')
+    } else {
+      transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
+    }
+    
     const confidence = data.results?.channels?.[0]?.alternatives?.[0]?.confidence || 0
+    const words = data.results?.channels?.[0]?.alternatives?.[0]?.words || []
     
     console.log('Deepgram result:', {
-      transcript: transcript ? transcript.substring(0, 100) : '(empty)',
-      language: detectedLanguage,
+      transcript: transcript ? transcript.substring(0, 150) : '(empty)',
+      wordCount: words.length,
       confidence: confidence.toFixed(2),
+      audioSize: audioBuffer.length,
     })
 
     return NextResponse.json({ 
       text: transcript,
-      language: detectedLanguage,
       confidence,
+      wordCount: words.length,
     })
   } catch (error) {
     console.error('STT error:', error)
