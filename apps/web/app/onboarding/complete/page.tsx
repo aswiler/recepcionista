@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession, signIn } from 'next-auth/react'
 import { 
@@ -8,6 +8,7 @@ import {
   Edit2, 
   Plus, 
   Mic, 
+  MicOff,
   Phone, 
   ArrowRight,
   Clock,
@@ -22,7 +23,8 @@ import {
   Target,
   Zap,
   Volume2,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react'
 
 interface ServiceDetail {
@@ -697,27 +699,230 @@ export default function OnboardingCompletePage() {
         </div>
       </div>
       
-      {/* Web Test Modal - TODO: implement web-based voice test */}
+      {/* Web Test Modal - browser voice conversation (no phone) */}
       {showWebTest && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold text-white mb-4">Probar tu recepcionista</h3>
-            <p className="text-blue-200 mb-6">
-              Habla con tu recepcionista AI usando el micrófono de tu navegador.
-            </p>
-            <p className="text-yellow-300 text-sm mb-4">
-              (Próximamente - Esta función está en desarrollo)
-            </p>
-            <button
-              onClick={() => setShowWebTest(false)}
-              className="w-full py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
+        <WebTestCallModal
+          info={info}
+          selectedVoice={selectedVoice}
+          onClose={() => setShowWebTest(false)}
+        />
       )}
     </main>
+  )
+}
+
+/** Browser-only voice test: user speaks in the browser, AI receptionist replies (no phone call). */
+function WebTestCallModal({
+  info,
+  selectedVoice,
+  onClose,
+}: {
+  info: LearnedInfo
+  selectedVoice: { id: string; name: string } | null
+  onClose: () => void
+}) {
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
+  const [status, setStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle')
+  const [isRecording, setIsRecording] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const voiceId = typeof window !== 'undefined'
+    ? (sessionStorage.getItem('selectedVoiceId') || selectedVoice?.id?.split('-')[0] || null)
+    : null
+  const greetingPlayedRef = useRef(false)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  useEffect(() => {
+    if (greetingPlayedRef.current) return
+    greetingPlayedRef.current = true
+    const name = info.businessName || 'Tu negocio'
+    const greeting = `Hola, soy la recepcionista de ${name}. ¿En qué puedo ayudarte?`
+    setMessages(prev => [...prev, { role: 'assistant', text: greeting }])
+    setStatus('speaking')
+    fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: greeting, voiceId }),
+    })
+      .then(res => res.ok ? res.blob() : null)
+      .then(blob => {
+        if (!blob) { setStatus('listening'); return }
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audio.onended = () => { URL.revokeObjectURL(url); setStatus('listening') }
+        audio.onerror = () => { URL.revokeObjectURL(url); setStatus('listening') }
+        audio.play().catch(() => setStatus('listening'))
+      })
+      .catch(() => setStatus('listening'))
+  }, [info.businessName, voiceId])
+
+  const speakText = useCallback(async (text: string) => {
+    setStatus('speaking')
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceId }),
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        await new Promise<void>(r => {
+          audio.onended = () => { URL.revokeObjectURL(url); r() }
+          audio.onerror = () => { URL.revokeObjectURL(url); r() }
+          audio.play().catch(() => r())
+        })
+      }
+    } catch {
+      // ignore
+    }
+    setStatus('listening')
+  }, [voiceId])
+
+  const processAudio = useCallback(async (audioBlob: Blob) => {
+    setStatus('processing')
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve((reader.result as string).split(',')[1] || '')
+        reader.readAsDataURL(audioBlob)
+      })
+      const sttRes = await fetch('/api/stt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio: base64, mimeType: audioBlob.type }),
+      })
+      const sttData = await sttRes.json().catch(() => ({}))
+      const userText = sttData.text?.trim() || ''
+      if (!userText) {
+        setStatus('listening')
+        return
+      }
+      const newMessages = [...messagesRef.current, { role: 'user' as const, text: userText }]
+      setMessages(newMessages)
+      const demoRes = await fetch('/api/receptionist-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: newMessages,
+          businessContext: info,
+        }),
+      })
+      const demoData = await demoRes.json().catch(() => ({}))
+      const aiText = demoData.text?.trim() || 'No he podido responder. ¿Puedes repetir?'
+      setMessages(prev => [...prev, { role: 'assistant', text: aiText }])
+      await speakText(aiText)
+    } catch {
+      setStatus('listening')
+    }
+  }, [info, speakText])
+
+  const startRecording = useCallback(async () => {
+    if (status === 'processing' || status === 'speaking') return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      })
+      streamRef.current = stream
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+      const recorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      recorder.onstop = async () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        stream.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        await processAudio(blob)
+      }
+      recorder.start(100)
+      setIsRecording(true)
+      setStatus('listening')
+    } catch (e) {
+      console.error(e)
+      setStatus('listening')
+    }
+  }, [status, processAudio])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
+  }, [])
+
+  const toggleMic = () => {
+    if (isRecording) stopRecording()
+    else startRecording()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 rounded-2xl border border-white/20 max-w-md w-full max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <h3 className="text-lg font-bold text-white">Probar tu recepcionista</h3>
+          <button onClick={onClose} className="p-2 text-blue-300 hover:text-white rounded-lg transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-blue-200 text-sm px-6 pb-3">
+          Habla por el micrófono. Tu recepcionista responderá por el altavoz.
+        </p>
+        <div className="flex-1 overflow-y-auto px-6 space-y-3 min-h-[120px]">
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2 ${
+                  m.role === 'user'
+                    ? 'bg-blue-500/30 text-white'
+                    : 'bg-white/10 text-blue-100'
+                }`}
+              >
+                <p className="text-sm">{m.text}</p>
+              </div>
+            </div>
+          ))}
+          {status === 'processing' && (
+            <div className="flex justify-start">
+              <div className="bg-white/10 rounded-2xl px-4 py-2 flex items-center gap-2 text-blue-200 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" /> Pensando...
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+        <div className="p-6 pt-4 border-t border-white/10">
+          <button
+            onClick={toggleMic}
+            disabled={status === 'processing' || status === 'speaking'}
+            className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto transition ${
+              isRecording
+                ? 'bg-red-500 hover:bg-red-600 text-white'
+                : (status === 'processing' || status === 'speaking')
+                  ? 'bg-white/10 text-white/50 cursor-not-allowed'
+                  : 'bg-green-500 hover:bg-green-600 text-white'
+            }`}
+          >
+            {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+          </button>
+          <p className="text-center text-blue-300/80 text-sm mt-3">
+            {isRecording ? 'Grabando... (pulsa para enviar)' : status === 'speaking' ? 'Hablando...' : 'Pulsa para hablar'}
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
