@@ -70,6 +70,49 @@ function getIndustryCategory(businessType: string): string {
   return 'default'
 }
 
+// Compact industry-aware question examples (injected into the prompt per phase)
+function getPhaseExamples(phase: string, industry: string): string {
+  const examples: Record<string, Record<string, string[]>> = {
+    intro: {
+      healthcare: ['"He visto que sois una clínica, ¿qué especialidades tenéis?"'],
+      salon: ['"Veo que sois un salón de belleza, ¿os dedicáis más a peluquería o estética?"'],
+      restaurant: ['"He visto que sois un restaurante, ¿qué tipo de cocina hacéis?"'],
+      software: ['"Veo que sois una empresa de software, ¿a quién va dirigido vuestro producto?"'],
+      default: ['"He visto vuestra web, ¿me confirmas a qué os dedicáis exactamente?"'],
+    },
+    services: {
+      healthcare: ['"¿Cuáles son las consultas o tratamientos que más os piden?"', '"¿Trabajáis con seguros médicos?"'],
+      salon: ['"¿Cuáles son los servicios estrella y a qué precio?"', '"¿Ofrecéis packs o tratamientos especiales?"'],
+      restaurant: ['"¿Tenéis menú del día o solo carta?"', '"¿Opciones para vegetarianos o alergias?"'],
+      software: ['"¿Qué planes tenéis y cuánto cuestan?"', '"¿Ofrecéis prueba gratuita?"'],
+      retail: ['"¿Cuáles son los productos más vendidos?"', '"¿Hacéis envíos y cuánto cuestan?"'],
+      fitness: ['"¿Qué clases ofrecéis?"', '"¿Cuánto cuesta la membresía?"'],
+      default: ['"¿Cuáles son los tres servicios que más os piden y a qué precio?"'],
+    },
+    hours: {
+      default: ['"¿De qué hora a qué hora abrís entre semana?"', '"¿Cerráis algún día?"'],
+    },
+    appointments: {
+      healthcare: ['"¿Cómo funciona pedir cita? ¿Se puede el mismo día?"'],
+      salon: ['"¿Se puede reservar online o solo por teléfono?"'],
+      restaurant: ['"¿Aceptáis reservas? ¿Con cuánta antelación?"'],
+      default: ['"Cuando alguien llama para contrataros, ¿cuál es el proceso?"'],
+    },
+    faqs: {
+      healthcare: ['"¿Qué pregunta os hacen siempre los pacientes antes de venir?"'],
+      salon: ['"¿Qué es lo que más pregunta la gente antes de pedir cita?"'],
+      default: ['"¿Cuál es la pregunta que más os hacen los clientes por teléfono?"'],
+    },
+    escalation: {
+      default: ['"¿En qué situaciones debería la AI pasar la llamada a una persona?"', '"¿Hay urgencias o casos especiales?"'],
+    },
+  }
+
+  const phaseExamples = examples[phase] || examples.escalation
+  const specific = phaseExamples[industry] || phaseExamples.default || ['"Cuéntame más sobre esto."']
+  return specific.map(q => `- ${q}`).join('\n')
+}
+
 // Lean phases: fast, 1-2 exchanges each, ALWAYS advance
 const INTERVIEW_PHASES = [
   { id: 'intro',        maxExchanges: 1, requiredFields: ['businessName', 'businessType'] },
@@ -139,13 +182,8 @@ ${knownInfo || 'Nada aún'}
 FASE ACTUAL: ${phaseLabels[state.currentPhase] || state.currentPhase} (intercambio ${state.questionsAskedInPhase + 1} de ${currentPhase.maxExchanges})
 TIPO: ${businessType} (${industryCategory})
 
-EJEMPLOS DE PREGUNTAS DIRECTAS POR FASE:
-- intro: "He visto que sois una clínica dental en Madrid, ¿es correcto?"
-- services: "¿Cuáles son los tres servicios que más pedís y a qué precio?"
-- hours: "¿De qué hora a qué hora abrís entre semana?"
-- appointments: "Cuando alguien llama para pedir cita, ¿cómo funciona?"
-- faqs: "¿Cuál es la pregunta que más os hacen los clientes por teléfono?"
-- escalation: "¿En qué situaciones debería la AI pasar la llamada a una persona real?"
+PREGUNTAS EJEMPLO PARA ESTA FASE (${phaseLabels[state.currentPhase] || state.currentPhase}):
+${getPhaseExamples(state.currentPhase, industryCategory)}
 
 Responde SOLO JSON:
 {"text":"tu frase breve + pregunta directa","topicComplete":false,"interviewComplete":false,"extractedFromLastResponse":{}}`

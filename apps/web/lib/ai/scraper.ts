@@ -171,22 +171,22 @@ async function scrapeWebsite(url: string): Promise<string> {
 }
 
 /**
- * Extract comprehensive business data using GPT-4o
+ * Extract comprehensive business data using GPT-4o-mini (fast + accurate enough)
  */
 async function extractComprehensiveData(
   websiteUrl: string,
   content: string
 ): Promise<ScrapedBusinessData> {
-  const prompt = `Eres un experto en análisis de negocios. Tu tarea es extraer TODA la información posible del siguiente sitio web para configurar un asistente virtual de atención al cliente altamente efectivo.
+  const prompt = `Analiza el siguiente sitio web y extrae información del negocio para configurar un asistente virtual de atención al cliente.
 
 SITIO WEB: ${websiteUrl}
 
 CONTENIDO EXTRAÍDO:
-${content.slice(0, 40000)}
+${content.slice(0, 20000)}
 
 ---
 
-Analiza el contenido y extrae la información en este formato JSON. Para campos que no estén explícitos, INFIERE valores razonables basándote en el tipo de negocio y la industria:
+Extrae la información en este formato JSON. Solo infiere valores cuando estés MUY seguro basándote en el contenido real. Si no encuentras algo, deja el campo vacío o como array vacío:
 
 {
   "name": "nombre exacto del negocio",
@@ -239,51 +239,27 @@ Analiza el contenido y extrae la información en este formato JSON. Para campos 
   "paymentMethods": ["métodos de pago aceptados"]
 }
 
-INSTRUCCIONES CRÍTICAS:
+INSTRUCCIONES:
+1. FAQs: genera 8-15 basándote en el contenido real. Respuestas específicas al negocio, no genéricas.
+2. SERVICIOS: lista los que encuentres. Si no hay precios, pon "Consultar". No inventes servicios.
+3. DIFERENCIADORES: solo los que se deduzcan del contenido real (experiencia, especialización, premios, etc.)
+4. OBJECIONES: 3-5 dudas reales que tendría un cliente, con respuestas honestas.
+5. IDIOMA: todo en español de España (castellano peninsular, "vosotros", "móvil", etc.)
+6. NO INVENTES datos de contacto, horarios ni precios que no aparezcan en el contenido.
 
-1. FAQs (GENERAR AL MENOS 15-20):
-   - Incluye preguntas sobre: qué hace el negocio, precios, proceso de contratación/compra, garantías, soporte, diferenciación, requisitos, tiempos, formas de contacto
-   - Las respuestas deben ser ESPECÍFICAS al negocio, no genéricas
-   - Anticipa las preguntas que un cliente real haría ANTES de contratar
-   - Incluye preguntas técnicas o específicas del sector
-
-2. SERVICIOS:
-   - Lista TODOS los servicios/productos que encuentres
-   - Si no hay precios explícitos, no los inventes pero indica "Consultar"
-   - Identifica cuáles parecen ser los más populares o destacados
-
-3. DIFERENCIADORES:
-   - Sé específico sobre qué hace único a este negocio
-   - Busca: años de experiencia, especialización, tecnología, ubicación, premios, certificaciones
-
-4. OBJECIONES (GENERAR 4-6):
-   - Piensa en las dudas reales que tendría alguien antes de contratar
-   - Las respuestas deben ser convincentes pero honestas
-
-5. IDIOMA:
-   - Escribe TODO en español de España (castellano peninsular)
-   - Usa "vosotros", "móvil", "ordenador", etc.
-   - Tono profesional pero cercano
-
-Responde SOLO con el JSON válido.`
+Responde SOLO JSON válido.`
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages: [
       { 
         role: 'system', 
-        content: `Eres un experto en análisis de negocios y experiencia de cliente. Tu trabajo es extraer y estructurar información de sitios web para que un asistente de IA pueda atender clientes de forma excelente.
-
-Siempre:
-- Genera contenido detallado y específico
-- Infiere información razonable cuando no esté explícita
-- Escribe en español de España perfecto y natural
-- Prioriza la utilidad práctica para atención al cliente`
+        content: 'Extrae información estructurada de sitios web para un asistente de atención al cliente. Sé preciso: solo incluye datos que aparezcan en el contenido o que puedas inferir con alta confianza. Escribe en español de España.'
       },
       { role: 'user', content: prompt }
     ],
-    temperature: 0.4,
-    max_tokens: 6000,
+    temperature: 0.3,
+    max_tokens: 4000,
     response_format: { type: 'json_object' },
   })
   
