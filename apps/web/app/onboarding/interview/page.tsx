@@ -83,7 +83,7 @@ export default function InterviewPage() {
   const [interviewState, setInterviewState] = useState<InterviewState | null>(null)
   const [progress, setProgress] = useState<Progress>({ current: 0, total: 6, percentage: 0 })
   const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo>({})
-  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState<string>('3-5 min')
+  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState<string>('~2 min')
   const [startTime, setStartTime] = useState<number | null>(null)
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -102,6 +102,9 @@ export default function InterviewPage() {
   // Reference to current audio element for barge-in support
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const aiSpeakingRef = useRef(false)
+  // Track latest messages to avoid stale closures
+  const messagesRef = useRef<Message[]>([])
+  messagesRef.current = messages
 
   // Check for onboarding data and load voice selection
   useEffect(() => {
@@ -215,14 +218,14 @@ export default function InterviewPage() {
     let greeting: string
     
     if (name && type && hasServices) {
-      // We know a lot - confirm and dig deeper
-      greeting = `¡Hola! He revisado la información de ${name}. Veo que sois ${type === 'software' ? 'una empresa de software' : `un negocio de ${type}`}. Me gustaría confirmar algunos detalles y conocer cosas que no aparecen en vuestra web. ¿Empezamos?`
+      // We know a lot - jump right in
+      greeting = `¡Hola! He revisado la web de ${name}. Tengo bastante info pero necesito confirmar un par de cosas rápido. ¿Empezamos?`
     } else if (name) {
-      // We know the name but not much else
-      greeting = `¡Hola! Soy la asistente de Recepcionista.com. Voy a ayudarte a configurar tu recepcionista AI para ${name}. Serán solo 3-5 minutos de preguntas. ¿Puedes contarme brevemente a qué os dedicáis?`
+      // We know the name
+      greeting = `¡Hola! Soy de Recepcionista.com. Voy a hacerte unas preguntas rápidas sobre ${name} para configurar tu recepcionista. Serán dos minutos. ¿A qué os dedicáis?`
     } else {
       // We know nothing
-      greeting = `¡Hola! Soy la asistente de Recepcionista.com. Voy a hacerte algunas preguntas para configurar tu recepcionista AI de forma personalizada. Serán unos 3-5 minutos. ¿Empezamos por el nombre de tu negocio?`
+      greeting = `¡Hola! Soy de Recepcionista.com. Te hago unas preguntas rápidas para montar tu recepcionista AI. Dos minutos. ¿Cómo se llama tu negocio?`
     }
     
     setMessages([{ role: 'assistant', text: greeting }])
@@ -366,12 +369,12 @@ export default function InterviewPage() {
       let silenceStart = 0
       let recordingStartTime = 0
       
-      // OPTIMIZED THRESHOLDS for better conversational experience:
-      const SILENCE_THRESHOLD = 12       // Lower = more sensitive to silence (was 15)
-      const SILENCE_DURATION = 1800      // 1.8 seconds of silence to stop (was 1.2) - allows natural pauses
-      const SPEECH_THRESHOLD = 18        // Level to detect speech start (was 20) - more sensitive
-      const MIN_RECORDING_DURATION = 1500 // 1.5 seconds minimum (was 0.8) - captures fuller sentences
-      const BARGE_IN_THRESHOLD = 25      // Higher threshold for barge-in to avoid false triggers
+      // TUNED for fast conversational flow + full sentence capture:
+      const SILENCE_THRESHOLD = 10       // Very sensitive to silence
+      const SILENCE_DURATION = 1400      // 1.4s silence = done talking (fast turnaround)
+      const SPEECH_THRESHOLD = 14        // Very sensitive to speech start
+      const MIN_RECORDING_DURATION = 800 // 0.8s min (captures short answers like "sí" or "no")
+      const BARGE_IN_THRESHOLD = 22      // Barge-in: slightly above speech threshold
       
       console.log('🎙️ VAD started with barge-in support, listening for speech...')
       
@@ -679,9 +682,10 @@ export default function InterviewPage() {
         return
       }
 
-      // Add user message
-      const newMessages = [...messages, { role: 'user' as const, text: userText }]
+      // Add user message — use ref for latest messages to avoid stale closure
+      const newMessages = [...messagesRef.current, { role: 'user' as const, text: userText }]
       setMessages(newMessages)
+      messagesRef.current = newMessages
 
       // Get AI response with enhanced interview state
       const aiResponse = await fetch('/api/chat', {
@@ -689,7 +693,6 @@ export default function InterviewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newMessages,
-          topic: interviewState?.currentPhase || 'intro',
           scrapedData: sessionStorage.getItem('scrapedData'),
           interviewState: interviewState,
         })
@@ -1047,7 +1050,7 @@ export default function InterviewPage() {
                     </span>
                     {isCurrent && interviewState && (
                       <span className="ml-auto text-xs text-blue-300">
-                        {interviewState.questionsAskedInPhase}/3
+                        {interviewState.questionsAskedInPhase}/{index <= 1 ? 2 : 1}
                       </span>
                     )}
                   </div>

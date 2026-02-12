@@ -27,20 +27,16 @@ export async function POST(request: NextRequest) {
     
     console.log('STT request - audio size:', audioBuffer.length, 'bytes, mimeType:', mimeType || 'not specified')
 
-    // Optimized Deepgram settings for Spanish conversational speech:
-    // - Use nova-2-general for better accuracy with conversational speech
-    // - Force Spanish (es) for better recognition of Spanish speakers
-    // - Enable utterances for natural sentence boundaries
-    // - Disable diarize since it's single speaker
-    // - Use filler_words to capture more natural speech
+    // Optimized Deepgram settings for Spanish conversational speech
     const params = new URLSearchParams({
-      model: 'nova-2-general',
-      language: 'es',              // Force Spanish for better accuracy
+      model: 'nova-2',
+      language: 'es',              // Force Spanish
       punctuate: 'true',
       smart_format: 'true',
-      utterances: 'true',          // Better sentence boundary detection
-      filler_words: 'true',        // Capture "eh", "um", etc. (helps with full transcription)
-      numerals: 'true',            // Better number handling
+      utterances: 'true',          // Better sentence boundary detection  
+      endpointing: '400',          // Wait 400ms of silence before finalizing (captures full phrases)
+      // NO numerals - we want "dieciocho" not "18" (TTS reads digits literally)
+      // NO filler_words - "eh", "um" add noise to the transcript
     })
     
     const response = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {

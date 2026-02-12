@@ -34,9 +34,11 @@ export async function POST(request: NextRequest) {
     const selectedVoiceId = voiceId || DEFAULT_VOICE_ID
     console.log('TTS request - voiceId received:', voiceId, '| using:', selectedVoiceId)
     
-    // eleven_multilingual_v2 auto-detects language from text - no language_code needed
-    // The model supports: Spanish, English, French, German, Italian, Portuguese, Polish, etc.
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
+    // Use streaming endpoint with optimize_streaming_latency for faster first-byte
+    // output_format: mp3_22050_32 = lower quality but faster + more phone-like
+    const ttsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}?optimize_streaming_latency=3&output_format=mp3_22050_32`
+    
+    const response = await fetch(ttsUrl, {
       method: 'POST',
       headers: {
         'Accept': 'audio/mpeg',
@@ -47,10 +49,10 @@ export async function POST(request: NextRequest) {
         text,
         model_id: 'eleven_multilingual_v2',
         voice_settings: {
-          stability: 0.35,           // Lower = more expressive, natural variation
-          similarity_boost: 0.8,     // High similarity to original voice
-          style: 0.4,                // Add some emotional expressiveness
-          use_speaker_boost: true,   // Enhance voice clarity
+          stability: 0.5,            // Balanced: natural but consistent
+          similarity_boost: 0.75,    // Slightly lower for more natural variation
+          style: 0.3,                // Moderate expressiveness
+          use_speaker_boost: false,  // OFF = less studio-polished, more natural/phone
         },
       }),
     })
